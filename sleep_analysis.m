@@ -13,25 +13,37 @@
 
 
 clear all
-groups = ["acox_control_male",  "MB051B_control_male", "MB051B_acox_male" ];
+groups = ["pex16_control_male",  "R58H05_control_male", "R58H05_pex16_male" ];
+cdir = "/Volumes/NO NAME/sleep_analysis/Sleep_runs/20230918/20230918__ZT0to24_multiColumn.xlsx";
 
-opts = spreadsheetImportOptions("NumVariables", 6);
+%opts = spreadsheetImportOptions("NumVariables", 6);
+
+opts = spreadsheetImportOptions("NumVariables", 7);
+
 
 % Specify sheet and range
-opts.Sheet = "Activity Counts Per min";
-opts.DataRange = "A2:F786";
+opts.Sheet = "Sleep (mins)";
+%opts.Sheet = "Activity Counts Per min";
+%opts.Sheet = "Mean sleep bout w ends (mins)";
+%opts.Sheet = "Num sleep bouts";
+%opts.Sheet = "Longest sleep bout (min)";
+%opts.Sheet = "Time to first sleep bout (min)";
+opts.DataRange = "A2:G335";
 
 % Specify column names and types
 opts.VariableNames = ["Genotype", "ExpRow", "Day1", "Day2", "Day3", "VarName6"];
 opts.VariableTypes = ["categorical", "double", "double", "double", "double", "double"];
 
+% opts.VariableNames = ["Genotype", "ExpRow", "Day1", "Day2", "Day3", "Day4", "Day5"];
+% opts.VariableTypes = ["categorical", "double", "double", "double", "double", "double","double"];
+
 % Specify variable properties
 opts = setvaropts(opts, "Genotype", "EmptyFieldRule", "auto");
 
 % Import the data
-T= readtable("/Volumes/NO NAME/EBFBMBacox__ZT0to24_multiColumn.xlsx", opts, "UseExcel", false);
+T= readtable(cdir, opts, "UseExcel", false);
 
-%%
+%% for 3 days experiments
 for i = 1: length(groups)
     groupidx = find((T.Genotype == groups(i)));
     data = zeros(length(groupidx), 4);
@@ -48,5 +60,26 @@ for i = 1: length(groups)
         exp = table(data(:,4));
     end
 end
+
+%% for 5 days experiments
+% for i = 1: length(groups)
+%     groupidx = find((T.Genotype == groups(i)));
+%     data = zeros(length(groupidx), 6);
+%     data(:,1) = T.Day1(groupidx);
+%     data(:,2) = T.Day2(groupidx);
+%     data(:,3) = T.Day3(groupidx);
+%     data(:,4) = T.Day4(groupidx);
+%     data(:,5) = T.Day5(groupidx);
+% 
+%     data(:,6) = mean(data(:,1:5),2)
+%     final{i} = data(:,6);
+%     if i == 1
+%         RNAictrl = table(data(:,6));
+%     elseif i == 2
+%         Gal4ctrl = table(data(:,6));
+%     else i == 3
+%         exp = table(data(:,6));
+%     end
+% end
 
 
