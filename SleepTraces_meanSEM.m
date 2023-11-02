@@ -1,3 +1,14 @@
+%SleepTraces_meanSEM
+%The main outputs of this code are: 
+%expTrace, Gal4ctrlTrace,uasctrlTrace that contains the mean sleep minutes
+%per day
+%expArray, GalArray, uasArray that contains mean, sem and N per group per
+%day, for easy drawing in graphpad. 
+
+%By: Camilo Guevara
+%Last Version: november 2nd 2023
+
+
 clear all 
 close all
 
@@ -5,20 +16,13 @@ close all
 % exp
 % uas control
 % Gal4 control
-
-
-
-%% Add MEAN, SEM, N PER TIME BIN
-
-
-
 tic
 
 
 %groups = {'R58H05_pex16_female_plus',  'R58H05_pex16_female_minus'};
-groups = {'R23E10_gnpat_female',  'gnpat_control_female','R23E10_control_female'};
-filename ="/Volumes/NO NAME/sleep_analysis/Sleep_oct_2023_update/Sleep_runs/20231030/20231030__ZT0to24_multiColumn.xlsx";
-NumDays = 3; 
+groups = {'#31',  'uas_control','#31.1'};
+filename ="/Volumes/NO NAME/sleep_analysis/DN_screening/20231027a/20231027a__ZT0to24_multiColumn.xlsx";
+NumDays = 5; 
 mult_day_plot = 'no'
 
 % Add the name of the sheet for each dayu
@@ -84,18 +88,18 @@ Gal4ctrlTrace = SleepByDays(:,:,3);
 expArray = zeros(length(meanSleep),NumDays *3); 
 expArray(:,1:3:NumDays* 3) = expTrace; 
 expArray(:,2:3:NumDays* 3) = errorByDays(:,:,1)
-expArray(:,3:3:NumDays* 3) = repmat(sizesample(:,:,1),3, 16)'; 
+expArray(:,3:3:NumDays* 3) = repmat(sizesample(1,1,1),NumDays, 48)'; 
 
 
 uasArray = zeros(length(meanSleep),NumDays *3); 
 uasArray(:,1:3:NumDays* 3) = uasctrlTrace; 
 uasArray(:,2:3:NumDays* 3) = errorByDays(:,:,2)
-uasArray(:,3:3:NumDays* 3) = repmat(sizesample(:,:,2),3, 16)'; 
+uasArray(:,3:3:NumDays* 3) = repmat(sizesample(1,1,2),NumDays, 48)'; 
 
 GalArray = zeros(length(meanSleep),NumDays *3); 
 GalArray(:,1:3:NumDays* 3) = SleepByDays(:,:,3); 
 GalArray(:,2:3:NumDays* 3) = errorByDays(:,:,3)
-GalArray(:,3:3:NumDays* 3) = repmat(sizesample(:,:,3),3, 16)'; 
+GalArray(:,3:3:NumDays* 3) = repmat(sizesample(1,1,3),NumDays, 48)'; 
 
 
 toc 
@@ -135,4 +139,6 @@ numbers = readtable(filename, opts, "UseExcel", false);
 data = table2array(numbers);
 
 end 
+
+
 
