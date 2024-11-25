@@ -18,11 +18,11 @@ close all
 % Gal4 control
 tic
 
-
-%groups = {'R58H05_pex16_female_plus',  'R58H05_pex16_female_minus'};
-groups = {'#31',  'uas_control','#31.1'};
-filename ="/Volumes/NO NAME/sleep_analysis/DN_screening/20231027a/20231027a__ZT0to24_multiColumn.xlsx";
-NumDays = 5; 
+groups = {'R58_ATR_female','R58_female','R58_ATR_female'};
+%groups = {'tsh_gtacr',  'gtacr_control','tsh_control'}
+%groups = {'96_ATR_female', '96_ctrl_female', 'X'};
+filename = "/Volumes/Camilo_1/Sleep_runs/20241122/20241122__ZT0to24_multiColumn.xlsx";
+NumDays = 3; 
 mult_day_plot = 'no'
 
 % Add the name of the sheet for each dayu
@@ -77,43 +77,70 @@ for j = 1 : length(groups);
     errorbar(time, meanSleep(:,j),err, '-o', "MarkerSize",5,'Color',color_codes(j,:), 'LineWidth',2);
     hold on  
 end
-%%
+
 legend(groups, 'Location', 'southeast')
 legend('boxoff');
+%%
 
-expTrace = SleepByDays(:,:,1);
-uasctrlTrace = SleepByDays(:,:,2);
-Gal4ctrlTrace = SleepByDays(:,:,3);
+
+expTrace_or = SleepByDays(:,:,1);
+expTrace = reshape(expTrace_or,[],1);
+uasctrlTrace_or = SleepByDays(:,:,2);
+uasctrlTrace = reshape(uasctrlTrace_or,[],1);
+Gal4ctrlTrace_or = SleepByDays(:,:,3);
+Gal4ctrlTrace = reshape(Gal4ctrlTrace_or,[],1);
 
 expArray = zeros(length(meanSleep),NumDays *3); 
-expArray(:,1:3:NumDays* 3) = expTrace; 
+expArray(:,1:3:NumDays* 3) = expTrace_or; 
 expArray(:,2:3:NumDays* 3) = errorByDays(:,:,1)
 expArray(:,3:3:NumDays* 3) = repmat(sizesample(1,1,1),NumDays, 48)'; 
+%expArray = reshape(expArray,[],3);
 
 
 uasArray = zeros(length(meanSleep),NumDays *3); 
-uasArray(:,1:3:NumDays* 3) = uasctrlTrace; 
+uasArray(:,1:3:NumDays* 3) = uasctrlTrace_or; 
 uasArray(:,2:3:NumDays* 3) = errorByDays(:,:,2)
-uasArray(:,3:3:NumDays* 3) = repmat(sizesample(1,1,2),NumDays, 48)'; 
+uasArray(:,3:3:NumDays* 3) = repmat(sizesample(1,1,2),NumDays, 48)';
+%uasArray = reshape(uasArray,[],3);
 
-GalArray = zeros(length(meanSleep),NumDays *3); 
-GalArray(:,1:3:NumDays* 3) = SleepByDays(:,:,3); 
-GalArray(:,2:3:NumDays* 3) = errorByDays(:,:,3)
-GalArray(:,3:3:NumDays* 3) = repmat(sizesample(1,1,3),NumDays, 48)'; 
+ GalArray = zeros(length(meanSleep),NumDays *3); 
+ GalArray(:,1:3:NumDays* 3) = SleepByDays(:,:,3); 
+ GalArray(:,2:3:NumDays* 3) = errorByDays(:,:,3)
+ GalArray(:,3:3:NumDays* 3) = repmat(sizesample(1,1,3),NumDays, 48)';
+
 
 
 toc 
 
-% Module to plot multiple days
-days_plot = []; 
-var_to_plot = expTrace;
+expGraph = cat(1,expArray(:,1:3), expArray(:,4:6));
+GalGraph = cat(1,GalArray(:,1:3), GalArray(:,4:6));
+uasGraph =  cat(1,uasArray(:,1:3), uasArray(:,4:6));
+i = 2;
+while i < NumDays
+    i = i+1;
+    expGraph = cat(1,expGraph,expArray(:,(i*3)-2:i*3)); 
+    GalGraph = cat(1,GalGraph,GalArray(:,(i*3)-2:i*3));
+    uasGraph = cat(1,uasGraph,uasArray(:,(i*3)-2:i*3));
+end
 
-% if mult_day_plot == 'yes'
-%     figure()
-%     mult_time = 0.5:0.5: 24 * NumDays; 
-%     days_plot = var_to_plot(:);
-%     plot(mult_time,days_plot)
-% end
+figure2 = figure('WindowState','fullscreen');
+axes1 = axes('Parent',figure2,...
+'Position',[0.0262276785714285 0.25444340505145 0.963727678571428 0.421889616463985]);
+hold(axes1,'on');
+
+errorbar(1:length(expGraph),expGraph(:,1),expGraph(:,2), '-o', "MarkerSize",5,'Color', "blue", 'LineWidth',2);
+hold on
+errorbar(1:length(GalGraph),GalGraph(:,1),GalGraph(:,2),'-o', "MarkerSize",5, 'Color',"black", 'LineWidth',2);
+errorbar(1:length(uasGraph),uasGraph(:,1),uasGraph(:,2),'-o', "MarkerSize",5, 'Color',[.7,.7,.7] ,'LineWidth',2);
+%legend(groups, 'Location', 'southeast')
+%legend('boxoff');
+
+box(axes1,'on');
+hold(axes1,'off');
+
+legend(groups, 'Location', 'southeast')
+legend('boxoff');
+
 
 
 function data = returnGenotype (day, filename, datarange)
@@ -139,6 +166,4 @@ numbers = readtable(filename, opts, "UseExcel", false);
 data = table2array(numbers);
 
 end 
-
-
 
