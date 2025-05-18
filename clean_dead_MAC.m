@@ -1,5 +1,5 @@
-clear all
-rootdir      = "/Users/camilog/Downloads/";
+lear all
+rootdir      = "/Users/camilog/Downloads";
 filename     = "250516_SD__ZT0to24_multiColumn.xlsx";
 NumDays = 3; 
 
@@ -15,8 +15,8 @@ data_sheet2 = cell2mat(activity_sheet(2:end,2:end));              ;
 
 %data_sheet2 = activity_sheet{:,vartype('numeric')};
 dead_flies = (isnan(data_sheet2));
-dead_flies = find(any(dead_flies,2)) ;
-dead_flies_days = dead_flies + 1 ;
+dead_flies = find(any(dead_flies,2)) + 1 ;
+dead_flies_days = dead_flies ;
 
 sleep_days_index = [1,8:7+(NumDays-1)];
 other_index = [2:7];
