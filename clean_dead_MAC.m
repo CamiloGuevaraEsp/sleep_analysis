@@ -1,4 +1,4 @@
-lear all
+clear all
 rootdir      = "/Users/camilog/Downloads";
 filename     = "250516_SD__ZT0to24_multiColumn.xlsx";
 NumDays = 3; 
