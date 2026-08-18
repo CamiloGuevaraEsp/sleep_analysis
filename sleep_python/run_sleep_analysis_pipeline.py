@@ -578,13 +578,10 @@ def step1_process_experiment(state):
     max_days = ask_number("How many days were recorded?", default_max_days)
     state["max_days"] = max_days
 
-    print("Note: flies with any missing/incomplete data (a gap) are always fully excluded "
-          "from the export -- but still plotted in the PDF. This is checked here on the raw "
-          "per-minute data (Step 3's cleaning step is still available separately, e.g. for "
-          "cleaning an existing Excel file that didn't come through this Step 1).")
-
     detect_death = ask_choice(
-        "ALSO detect flies with behavioral death (sustained immobility) and fully exclude them?",
+        "Detect flies with behavioral death (sustained immobility) and fully exclude "
+        "them from the export -- separate from, and in addition to, flies later removed "
+        "in Step 3 for missing/incomplete data?",
         ["Yes", "No"], 0,
     ) == "Yes"
     if detect_death:
@@ -665,29 +662,23 @@ def step1_process_experiment(state):
                     capped_days.extend([np.full(1440, np.nan)] * (max_days - len(capped_days)))
                 continuous_counts = np.concatenate(capped_days)
 
-                # --- Exclusion checks: both run on the raw 1-min data, BEFORE any
-                # summarizing, so both catch flies at the earliest possible point and
-                # both result in the fly being fully excluded from every day of the
-                # numeric export -- not just trimmed after the fact. The fly is still
-                # plotted below so you can see what happened to it in the PDF.
-                has_gap = bool(np.isnan(continuous_counts).any())
-
+                # --- Behavioral death check: runs on the raw 1-min data, BEFORE any
+                # summarizing, so it catches a fly at the earliest possible point and
+                # results in the fly being fully excluded from every day of the numeric
+                # export -- not just trimmed after the fact. The fly is still plotted
+                # below so you can see what happened to it in the PDF. Gap/missing-data
+                # exclusion is handled separately, downstream, in Step 3.
                 death_idx = None
                 if detect_death:
                     death_idx = detect_behavioral_death(
                         continuous_counts, death_window_min, death_prop_immobile, death_step_min
                     )
 
-                exclude_reasons = []
-                if has_gap:
-                    exclude_reasons.append("missing/incomplete data")
-                if death_idx is not None:
+                excluded = death_idx is not None
+                if excluded:
                     death_day = death_idx // 1440 + 1
                     death_zt = (death_idx % 1440) / 60.0
-                    exclude_reasons.append(f"behavioral death (day {death_day} ZT {death_zt:.1f})")
-                excluded = bool(exclude_reasons)
-                reason_text = "; ".join(exclude_reasons)
-                if excluded:
+                    reason_text = f"behavioral death (day {death_day} ZT {death_zt:.1f})"
                     mon_label = monitor_nums[idx] if have_monitor_info else None
                     print(f"  Channel {channel_nums[idx]} ({group}): excluded -- {reason_text}. "
                           f"Still plotted in the PDF for reference.")
@@ -761,13 +752,14 @@ def step1_process_experiment(state):
     print(f"Saved {output_base}.pkl (with group summaries) and {pdf_path}")
 
     if excluded_flies:
-        report_path = f"{output_base}_excluded_flies.csv"
+        report_path = f"{output_base}_behavioral_dead_flies.csv"
         with open(report_path, "w") as f:
             f.write("channel,monitor,group,reason\n")
             for row in excluded_flies:
                 f.write(f"{row['channel']},{row['monitor']},{row['group']},\"{row['reason']}\"\n")
-        print(f"Excluded {len(excluded_flies)} fly(ies) (missing data and/or behavioral death). "
-              f"Details in {report_path}. All channels, including excluded ones, are still in the PDF.")
+        print(f"Excluded {len(excluded_flies)} fly(ies) for behavioral death (sustained immobility). "
+              f"Details in {report_path}. All channels, including excluded ones, are still in the PDF. "
+              f"Flies with missing/incomplete data are handled separately in Step 3.")
 
     return state
 
