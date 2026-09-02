@@ -11,7 +11,9 @@ Combines, in order:
   1) Per-experiment channel processing + activity/sleep binning + PDF plots
      (previously basicDAManalysis_v3_mac.m)
   2) Multi-experiment aggregation into a GraphPad-ready multi-sheet Excel file
-     (previously mat2write_dayVsNightSleepBins_graphPadFormat_MAC.m)
+     (previously mat2write_dayVsNightSleepBins_graphPadFormat_MAC.m). You pick
+     which metrics to export, including P(Wake) and P(Doze) -- the minute-to-minute
+     state-transition probabilities of Wiggin et al. 2020 (PNAS 117:10024).
   3) Removal of dead/incomplete animals from that Excel file
      (previously clean_dead_MAC.m)
   4) Prism-ready plots (bar+dot, sex-split scatter, ZT sleep profile, and a
@@ -22,7 +24,13 @@ Run with:  python3 run_sleep_analysis_pipeline.py
 You will be prompted (via native folder/file dialogs if a display is
 available, otherwise via the terminal) instead of having to hand-edit
 variables at the top of a script. Uses only pathlib for file paths, so it
-runs unmodified on macOS and Windows.
+runs unmodified on macOS and Windows. All five steps run by default -- answer
+"1 2 3 4" at the first prompt to skip the raw-monitor import.
+
+The sleep definition (minutes of immobility that count as a sleep episode) is
+asked for in Step 1 rather than hard-coded; 5 minutes is the field standard.
+Runs using any other value get it stamped into their output filenames so they
+can't overwrite the results you're comparing them against.
 
 Dependencies: numpy, matplotlib, openpyxl, python-dateutil (tkinter is used
 for dialogs when available, but the script falls back to the terminal if
@@ -33,11 +41,12 @@ next to the channelList Excel file -- this pipeline does not read/write
 MATLAB .mat files, so it is fully self-contained in Python.
 """
 
+import csv
 import math
 import pickle
 import re
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -61,9 +70,62 @@ except Exception:
 
 
 # =============================================================================
+# Run log: every answer you give, plus everything the pipeline decided for you
+# =============================================================================
+# Written as one CSV per experiment folder, appended to on every run, so months
+# later you can answer "what settings produced this file?" without guessing.
+# Recording happens inside the ask_* helpers below, so a prompt cannot be added
+# without also being logged.
+RUN_LOG_FILENAME = "sleep_pipeline_run_log.csv"
+RUN_LOG_COLUMNS = ["run_id", "timestamp", "step", "parameter", "value", "source"]
+RUN_ID = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+RUN_LOG = []
+CURRENT_STEP = "start"
+
+
+def set_step(step_label):
+    global CURRENT_STEP
+    CURRENT_STEP = step_label
+
+
+def record(parameter, value, source="answered"):
+    """source: 'answered' (you typed/picked it), 'auto-detected' (the pipeline
+    found it for you and never asked), 'derived' (computed from your answers),
+    or 'output' (a file that was written)."""
+    RUN_LOG.append({
+        "run_id": RUN_ID,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "step": CURRENT_STEP,
+        "parameter": parameter,
+        "value": str(value),
+        "source": source,
+    })
+
+
+def write_run_log(dest_folder):
+    """Append this run's entries to the CSV in dest_folder. Returns the path, or
+    None if nothing could be written -- the log is a convenience, so a failure
+    here (read-only disk, file open in Excel) must never lose an analysis."""
+    if not RUN_LOG:
+        return None
+    try:
+        path = Path(dest_folder) / RUN_LOG_FILENAME
+        write_header = not path.is_file()
+        with open(path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=RUN_LOG_COLUMNS)
+            if write_header:
+                writer.writeheader()
+            writer.writerows(RUN_LOG)
+        return path
+    except OSError as exc:
+        print(f"Warning: could not write the run log ({exc}). The analysis itself is unaffected.")
+        return None
+
+
+# =============================================================================
 # Prompt helpers (dialogs when a display is available, terminal otherwise)
 # =============================================================================
-def ask_folder(prompt_text, default_path=None, create_if_missing=False):
+def ask_folder(prompt_text, default_path=None, create_if_missing=False, label=None):
     default_path = str(default_path) if default_path else str(Path.cwd())
     if HAS_GUI:
         path = filedialog.askdirectory(title=prompt_text, initialdir=default_path)
@@ -78,10 +140,11 @@ def ask_folder(prompt_text, default_path=None, create_if_missing=False):
             path.mkdir(parents=True, exist_ok=True)
         else:
             raise SystemExit(f"Folder does not exist: {path}")
+    record(label or prompt_text, path)
     return path
 
 
-def ask_file(prompt_text, default_folder=None, filetypes=(("Excel files", "*.xlsx"),)):
+def ask_file(prompt_text, default_folder=None, filetypes=(("Excel files", "*.xlsx"),), label=None):
     default_folder = str(default_folder) if default_folder else str(Path.cwd())
     if HAS_GUI:
         path = filedialog.askopenfilename(title=prompt_text, initialdir=default_folder, filetypes=filetypes)
@@ -95,20 +158,23 @@ def ask_file(prompt_text, default_folder=None, filetypes=(("Excel files", "*.xls
     path = Path(path)
     if not path.is_file():
         raise SystemExit(f"File does not exist: {path}")
+    record(label or prompt_text, path)
     return path
 
 
-def ask_number(prompt_text, default_val):
+def ask_number(prompt_text, default_val, label=None):
     if HAS_GUI:
         val = simpledialog.askinteger("Input", prompt_text, initialvalue=default_val)
         if val is None:
             raise SystemExit(f"{prompt_text}: no value entered.")
-        return val
-    txt = input(f"{prompt_text} [{default_val}]: ").strip()
-    return int(txt) if txt else default_val
+    else:
+        txt = input(f"{prompt_text} [{default_val}]: ").strip()
+        val = int(txt) if txt else default_val
+    record(label or prompt_text, val)
+    return val
 
 
-def ask_choice(prompt_text, options, default_idx=0):
+def ask_choice(prompt_text, options, default_idx=0, label=None):
     if HAS_GUI:
         txt = simpledialog.askstring(
             "Input",
@@ -122,7 +188,60 @@ def ask_choice(prompt_text, options, default_idx=0):
             print(f"  {i+1}) {o}")
         txt = input(f"Choice [{default_idx+1}]: ").strip()
         idx = int(txt) - 1 if txt else default_idx
+    record(label or prompt_text, options[idx])
     return options[idx]
+
+
+def parse_selection(txt, options):
+    """Parse a multi-select answer into a list of options, in `options` order.
+    Accepts 'all' (or blank), 1-based numbers ('1 3 5'), ranges ('1-5', '1-5 12'),
+    exact option names, or any comma-separated mix of those."""
+    txt = (txt or "").strip()
+    if not txt or txt.lower() == "all":
+        return list(options)
+    lower_map = {o.lower(): o for o in options}
+    chosen = set()
+    for part in (p.strip() for p in txt.split(",")):
+        if not part:
+            continue
+        # A part made only of digits/dashes/spaces is a list of numbers/ranges;
+        # anything else is treated as a single option name (names contain spaces).
+        tokens = part.split() if re.fullmatch(r"[\d\s\-]+", part) else [part]
+        for tok in tokens:
+            if re.fullmatch(r"\d+\s*-\s*\d+", tok):
+                lo, hi = (int(x) for x in tok.split("-"))
+                idxs = range(lo, hi + 1)
+            elif tok.isdigit():
+                idxs = [int(tok)]
+            else:
+                name = lower_map.get(tok.lower())
+                if name is None:
+                    raise SystemExit(f"Unknown option {tok!r}. Valid options: " + ", ".join(options))
+                chosen.add(name)
+                continue
+            for i in idxs:
+                if not (1 <= i <= len(options)):
+                    raise SystemExit(f"Option number {i} is out of range (1-{len(options)}).")
+                chosen.add(options[i - 1])
+    return [o for o in options if o in chosen]
+
+
+def ask_multi_choice(prompt_text, options, default="all", label=None):
+    numbered = "\n".join(f"  {i+1}) {o}" for i, o in enumerate(options))
+    if HAS_GUI:
+        txt = simpledialog.askstring("Input", f"{prompt_text}\n{numbered}", initialvalue=default)
+    else:
+        print(prompt_text)
+        print(numbered)
+        txt = input(f"Selection [{default}]: ").strip()
+    txt = txt if (txt and txt.strip()) else default
+    selected = parse_selection(txt, options)
+    if not selected:
+        raise SystemExit("Nothing selected -- pick at least one option.")
+    name = label or prompt_text
+    record(f"{name} (as typed)", txt)
+    record(f"{name} (resolved)", "; ".join(selected), "derived")
+    return selected
 
 
 ZT_RANGE_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*$")
@@ -163,6 +282,9 @@ def ask_zt_windows(default="0-24"):
         windows.append((lo, hi))
     if not windows:
         raise SystemExit("No ZT range entered.")
+    record("ZT range(s) to analyze (as typed)", txt)
+    record("ZT range(s) to analyze (resolved)",
+           "; ".join(f"ZT{lo}-{hi}" for lo, hi in windows), "derived")
     return windows
 
 
@@ -185,6 +307,9 @@ def ask_datetime_range():
     if not start_dt or not end_dt or end_dt < start_dt:
         raise SystemExit("End date/time must be at or after start date/time.")
 
+    record("Range start date & time", start_txt)
+    record("Range end date & time (last included minute)", end_txt)
+
     # end_dt is the last included minute (DAMFileScan convention), so the count is inclusive.
     total_minutes = int(round((end_dt - start_dt).total_seconds() / 60)) + 1
     n_days = total_minutes // 1440
@@ -194,6 +319,12 @@ def ask_datetime_range():
         print(f"Note: range is {total_minutes} minutes, not a whole number of days -- "
               f"truncating to {n_days} whole day(s) ({n_days * 1440} minutes) starting {start_dt}.")
     end_dt = start_dt + timedelta(minutes=n_days * 1440)
+    # Report the LAST INCLUDED minute, matching how the range was asked for --
+    # end_dt is the exclusive boundary used internally, and logging that raw
+    # would look like it disagreed with the answer typed one row above.
+    record("Range used after truncation to whole days",
+           f"{start_dt} to {end_dt - timedelta(minutes=1)} inclusive "
+           f"({n_days} day(s), {n_days * 1440} minutes)", "derived")
     return start_dt, end_dt, n_days
 
 
@@ -276,35 +407,43 @@ def choose_measurement_type(types_by_monitor):
     for s in types_by_monitor.values():
         all_types |= s
     if len(all_types) == 1:
-        return next(iter(all_types))
+        only = next(iter(all_types))
+        record("Measurement type", f"{only} (the only type present, so you weren't asked)", "auto-detected")
+        return only
     options = sorted(all_types)
     default_idx = options.index("CT") if "CT" in options else 0
     return ask_choice(
         "Multiple measurement types found across the monitor files (e.g. CT/MT/Pn). "
         "Which should be used as activity counts? (CT -- beam-crossing counts -- is the standard choice.)",
-        options, default_idx,
+        options, default_idx, label="Measurement type",
     )
 
 
 def step0_import_monitor_data(state):
     print("\n--- Step 0: Import raw Monitor data ---")
-    dump_folder = ask_folder("Select the folder containing the raw Monitor*.txt files", state.get("last_folder"))
+    set_step("0 - import raw monitor data")
+    dump_folder = ask_folder("Select the folder containing the raw Monitor*.txt files",
+                             state.get("last_folder"), label="Raw Monitor*.txt dump folder")
     dest_folder = ask_folder(
         "Select (or create) the destination experiment folder -- this is where 'Raw Data' and the "
         "channelList will be written, and what you'll point Step 1 at",
         state.get("last_folder"),
         create_if_missing=True,
+        label="Destination experiment folder",
     )
 
     # The manifest describes THIS experiment's monitor/group/channel layout, so it
     # belongs with the experiment's other files, not the (often-reused) raw dump
     # folder -- same naming convention as channelList: "<expName>_channelGroups.txt".
     manifest_path = dest_folder / f"{dest_folder.name}_channelGroups.txt"
-    if not manifest_path.is_file():
+    if manifest_path.is_file():
+        record("Channel-groups manifest", manifest_path, "auto-detected")
+    else:
         manifest_path = ask_file(
             "Select the channel-groups manifest (plain text: monitor, group, channel_range per line)",
             dest_folder,
             filetypes=(("Text files", "*.txt"),),
+            label="Channel-groups manifest",
         )
 
     start_dt, end_dt, n_days = ask_datetime_range()
@@ -390,6 +529,13 @@ def step0_import_monitor_data(state):
     print(f"Wrote {channel_list_path}")
     if total_missing:
         print(f"Note: {total_missing} total minute(s) were missing across all channels and filled with NaN.")
+
+    record("Monitors read", ", ".join(str(m) for m in monitors_needed), "derived")
+    record("Channels written", len(manifest), "derived")
+    record("Minutes missing from the raw files (filled with NaN)", total_missing, "derived")
+    record("Raw Data folder", raw_dir, "output")
+    record("channelList", channel_list_path, "output")
+    record("mat2read", mat2read_path, "output")
 
     state["last_folder"] = dest_folder
     state["max_days"] = n_days
@@ -488,14 +634,122 @@ def bin_30min(counts_1440):
     return counts_1440.reshape(48, 30).sum(axis=1)
 
 
-def compute_sleep_binary(counts_1440):
-    """A stop of >=5 consecutive 1-min bins of zero activity counts as sleep."""
+DEFAULT_SLEEP_DEF_MIN = 5
+
+
+def compute_sleep_binary(counts_1440, sleep_def_min=DEFAULT_SLEEP_DEF_MIN):
+    """A stop of >= `sleep_def_min` consecutive 1-min bins of zero activity counts
+    as sleep. 5 minutes is the field-standard DAM definition (Hendricks et al. 2000;
+    Shaw et al. 2000), but it is a convention, not a measurement -- shortening it
+    scores more (and shorter) bouts as sleep, lengthening it scores fewer."""
     is_stopped = counts_1440 == 0
     is_sleep = np.zeros_like(counts_1440)
     for start, end in find_true_runs(is_stopped):
-        if (end - start + 1) >= 5:
+        if (end - start + 1) >= sleep_def_min:
             is_sleep[start:end + 1] = 1
     return is_sleep
+
+
+def transition_probabilities(counts_1min):
+    """P(Wake) and P(Doze) for one fly over one window of 1-min activity counts,
+    following Wiggin et al. 2020 (PNAS 117:10024-10034, PMC7211995).
+
+    A 1-min bin is "inactive" if its activity count is 0 and "active" if it is > 0
+    -- the >=5-min sleep definition is deliberately NOT used here; these are raw
+    minute-to-minute state transitions.
+
+      P(Wake) = (inactive bins immediately followed by an active bin)
+                / (inactive bins that have an observable following bin)
+      P(Doze) = the same with activity and inactivity reversed.
+
+    The paper's "every bin ... except the last one" is implemented as: only bins
+    with a successor *inside the analysed window* count, so a window's final bin is
+    dropped from the denominator (its transition is unobservable). Bin pairs where
+    either minute is NaN (missing data) are dropped from both numerator and
+    denominator. If a denominator is zero the probability is undefined -> NaN,
+    which is written to Excel as an empty cell rather than a misleading 0."""
+    if counts_1min.size < 2:
+        return np.nan, np.nan
+    valid = ~np.isnan(counts_1min)
+    inactive = valid & (counts_1min == 0)
+    active = valid & (counts_1min > 0)
+    usable = valid[:-1] & valid[1:]  # both minutes of the pair must be real data
+
+    from_inactive = inactive[:-1] & usable
+    from_active = active[:-1] & usable
+    n_from_inactive = int(from_inactive.sum())
+    n_from_active = int(from_active.sum())
+
+    p_wake = float((from_inactive & active[1:]).sum()) / n_from_inactive if n_from_inactive else np.nan
+    p_doze = float((from_active & inactive[1:]).sum()) / n_from_active if n_from_active else np.nan
+    return p_wake, p_doze
+
+
+BIN_MINUTES = 30
+
+# Sliding window used for the P(Wake)/P(Doze) ZT profiles. A wider window gives a
+# larger denominator per point (a steadier estimate) but blunts sharp transients
+# such as the lights-on P(Wake) spike; 60/10 keeps that spike visible while
+# doubling the denominator relative to independent 30-min bins. This is a display
+# choice of ours -- Wiggin et al. 2020 describe no smoothing for their Fig. 1B.
+PROB_WINDOW_MINUTES = 60
+PROB_STEP_MINUTES = 10
+
+
+def sliding_transition_probabilities(counts_1min, window_minutes=PROB_WINDOW_MINUTES,
+                                     step_minutes=PROB_STEP_MINUTES):
+    """P(Wake)/P(Doze) recomputed in a window that slides `step_minutes` at a time.
+
+    This is NOT a moving average of already-computed bin probabilities: each point
+    is a fresh calculation over every minute in its window, so widening the window
+    enlarges the denominator instead of averaging together noisy ratios. That
+    matters because the jaggedness it fixes comes from tiny denominators (at night
+    a fly has very few *active* minutes, so P(Doze) over 30 min can rest on 1-3
+    observations).
+
+    Windows are circular within the 24 h cycle: the window centred on ZT0 takes its
+    first half from the end of the same day. A daily profile is periodic by
+    construction, and this avoids edge artefacts at ZT0/ZT24 -- which would
+    otherwise sit next to each other in the double plot and be very visible.
+
+    Returns (timepoints_in_hours, p_wake, p_doze); timepoints are window centres."""
+    n = len(counts_1min)
+    n_points = n // step_minutes
+    half = window_minutes // 2
+    p_wake = np.full(n_points, np.nan)
+    p_doze = np.full(n_points, np.nan)
+    timepoints = np.empty(n_points)
+    for i in range(n_points):
+        centre = i * step_minutes + step_minutes / 2.0
+        timepoints[i] = centre / 60.0
+        # One extra minute so the transition out of the window's last minute is
+        # still observable, matching binned_transition_probabilities.
+        start = int(round(centre - half))
+        take = np.mod(np.arange(start, start + window_minutes + 1), n)
+        p_wake[i], p_doze[i] = transition_probabilities(counts_1min[take])
+    return timepoints, p_wake, p_doze
+
+
+def binned_transition_probabilities(counts_1min, bin_minutes=BIN_MINUTES):
+    """P(Wake)/P(Doze) computed separately in each time bin across the day, giving
+    the ZT profiles of Wiggin et al. 2020 Fig. 1B rather than one number per day.
+
+    Each bin is extended by one minute so the transition out of its final minute
+    is still counted (the successor simply belongs to the next bin). Without this
+    every bin boundary would silently discard one transition. The last bin of the
+    recording has no successor available and so loses that one pair, exactly as
+    the paper's "every bin ... except the last one" describes.
+
+    Returns two arrays of length len(counts_1min) // bin_minutes. Bins where the
+    probability is undefined (no inactive minutes, or no active minutes) are NaN."""
+    n_bins = len(counts_1min) // bin_minutes
+    p_wake = np.full(n_bins, np.nan)
+    p_doze = np.full(n_bins, np.nan)
+    for b in range(n_bins):
+        start = b * bin_minutes
+        stop = min(start + bin_minutes + 1, len(counts_1min))
+        p_wake[b], p_doze[b] = transition_probabilities(counts_1min[start:stop])
+    return p_wake, p_doze
 
 
 def detect_behavioral_death(continuous_counts, window_min=1440, prop_immobile=0.01, step_min=60):
@@ -553,9 +807,11 @@ def read_channel_list_txt(path):
 
 def step1_process_experiment(state):
     print("\n--- Step 1: Process one experiment ---")
+    set_step("1 - process experiment")
     rootdir = ask_folder(
         'Select the experiment folder (contains "Raw Data" and the channelList file)',
         state.get("last_folder"),
+        label="Experiment folder",
     )
     state["last_folder"] = rootdir
     exp_name = rootdir.name
@@ -567,33 +823,47 @@ def step1_process_experiment(state):
     channel_list_file = rootdir / f"{exp_name}_channelList.xlsx"
     if not channel_list_file.is_file():
         channel_list_file = rootdir / f"{exp_name}_channelList.txt"
-    if not channel_list_file.is_file():
+    if channel_list_file.is_file():
+        record("channelList", channel_list_file, "auto-detected")
+    else:
         channel_list_file = ask_file(
             "Select the channelList file (.xlsx or .txt)",
             rootdir,
             filetypes=(("channelList files", "*.xlsx *.txt"), ("Excel files", "*.xlsx"), ("Text files", "*.txt")),
+            label="channelList",
         )
 
     default_max_days = state.get("max_days") or 3
-    max_days = ask_number("How many days were recorded?", default_max_days)
+    max_days = ask_number("How many days were recorded?", default_max_days, label="Days recorded")
     state["max_days"] = max_days
+
+    sleep_def_min = ask_number(
+        "Sleep definition: how many consecutive minutes of immobility (zero activity) "
+        "count as a sleep episode? The field standard for DAM data is 5.",
+        state.get("sleep_def_min") or DEFAULT_SLEEP_DEF_MIN,
+        label="Sleep definition (minutes of immobility)",
+    )
+    if sleep_def_min < 1:
+        raise SystemExit(f"Sleep definition must be at least 1 minute (got {sleep_def_min}).")
+    state["sleep_def_min"] = sleep_def_min
+    print(f"Using a {sleep_def_min}-minute sleep definition.")
 
     detect_death = ask_choice(
         "Detect flies with behavioral death (sustained immobility) and fully exclude "
         "them from the export -- separate from, and in addition to, flies later removed "
         "in Step 3 for missing/incomplete data?",
-        ["Yes", "No"], 0,
+        ["Yes", "No"], 0, label="Detect behavioral death",
     ) == "Yes"
     if detect_death:
         death_window_hours = ask_number(
             "Behavioral-death window (hours) -- a fly moving less than the threshold "
             "below, continuously, for this long counts as dead (rethomics/sleepr default: 24)",
-            24,
+            24, label="Behavioral-death window (hours)",
         )
         death_prop_immobile_pct = ask_number(
             "Max percent of that window the fly can be moving and still be called dead "
             "(rethomics/sleepr default: 1)",
-            1,
+            1, label="Behavioral-death max percent moving",
         )
         death_window_min = death_window_hours * 60
         death_prop_immobile = death_prop_immobile_pct / 100.0
@@ -628,7 +898,8 @@ def step1_process_experiment(state):
             all_channel_dat_by_day.append([])
 
     with open(f"{output_base}.pkl", "wb") as f:
-        pickle.dump({"all_channel_dat_by_day": all_channel_dat_by_day}, f)
+        pickle.dump({"all_channel_dat_by_day": all_channel_dat_by_day,
+                     "sleep_def_min": sleep_def_min}, f)
     print(f"Saved {output_base}.pkl")
 
     pdf_path = f"{output_base}.pdf"
@@ -687,7 +958,7 @@ def step1_process_experiment(state):
                         "reason": reason_text,
                     })
 
-                continuous_is_sleep = compute_sleep_binary(continuous_counts)
+                continuous_is_sleep = compute_sleep_binary(continuous_counts, sleep_def_min)
                 if not excluded:
                     sleep_runs_by_fly.append(find_true_runs(continuous_is_sleep == 1))
                     active_runs_by_fly.append(find_true_runs(continuous_is_sleep == 0))
@@ -746,10 +1017,21 @@ def step1_process_experiment(state):
 
     with open(f"{output_base}.pkl", "wb") as f:
         pickle.dump(
-            {"all_channel_dat_by_day": all_channel_dat_by_day, "all_dat_by_group": all_dat_by_group},
+            {"all_channel_dat_by_day": all_channel_dat_by_day,
+             "all_dat_by_group": all_dat_by_group,
+             "sleep_def_min": sleep_def_min},
             f,
         )
     print(f"Saved {output_base}.pkl (with group summaries) and {pdf_path}")
+    record("Channels processed", len(channel_nums), "derived")
+    record("Groups found", "; ".join(group_names), "derived")
+    record("Flies excluded for behavioral death", len(excluded_flies), "derived")
+    if excluded_flies:
+        record("Behaviorally dead flies",
+               "; ".join(f"M{r['monitor']}C{r['channel']} ({r['group']}) {r['reason']}" for r in excluded_flies),
+               "derived")
+    record("Binned data", f"{output_base}.pkl", "output")
+    record("Per-fly plots", pdf_path, "output")
 
     if excluded_flies:
         report_path = f"{output_base}_behavioral_dead_flies.csv"
@@ -773,6 +1055,8 @@ def gather_group_day_data(raw_rows, group_col_idx, day, zt_lo, zt_hi):
     Returns a dict of per-fly arrays/lists (rows aligned across all of them), or
     None if no data was found for this group/day."""
     activity_per_min = []
+    activity30_full_all = []
+    activity1_full_all = []
     sleep_per_min = []
     mins_awake = []
     sleep_binary = []
@@ -823,6 +1107,8 @@ def gather_group_day_data(raw_rows, group_col_idx, day, zt_lo, zt_hi):
         n_flies_this_exp = sleep_bin_full.shape[0]
 
         activity_per_min.append(activity_full[:, zt_lo_bin:zt_hi_bin])
+        activity30_full_all.append(activity_full)
+        activity1_full_all.append(activity1_full)
         sleep_per_min.append(day_entry["sleep30"])
         mins_awake.append(this_mins_awake)
         sleep_binary.append(sleep_bin_zt)
@@ -836,6 +1122,8 @@ def gather_group_day_data(raw_rows, group_col_idx, day, zt_lo, zt_hi):
 
     return {
         "activity_per_min": np.vstack(activity_per_min),
+        "activity30_full": np.vstack(activity30_full_all),
+        "activity1_full": np.vstack(activity1_full_all),
         "sleep_per_min": np.vstack(sleep_per_min),
         "mins_awake": np.concatenate(mins_awake),
         "sleep_binary": np.vstack(sleep_binary),
@@ -931,11 +1219,44 @@ SIMPLE_METRIC_SHEETS = [
     "Median active bout len (mins)",
     "Mean counts per activity bout",
     "Peak activity (counts per min)",
+    "P(Wake)",
+    "P(Doze)",
 ]
+
+# Step 3 finds dead/incomplete flies by looking for blank cells in one reference
+# sheet. "Activity Counts Per min" stays first so that exporting every metric gives
+# byte-identical results to previous versions of this pipeline. P(Wake)/P(Doze) are
+# excluded entirely: they are legitimately blank whenever undefined, so a blank
+# there means "no transitions to measure", not "no data".
+DEAD_CHECK_SHEET_PREFERENCE = ["Activity Counts Per min"] + [
+    n for n in SIMPLE_METRIC_SHEETS if not n.startswith("P(") and n != "Activity Counts Per min"
+]
+
+
+def read_sleep_def_from_experiments(raw_rows):
+    """Read back the sleep definition Step 1 recorded in the first .pkl we can find,
+    so Step 2 can label its output correctly even when run on its own. Returns None
+    if no .pkl records one (i.e. it was written by an older version of Step 1)."""
+    for row in raw_rows:
+        rootdir, matname = row[0], row[1]
+        if rootdir is None or (isinstance(rootdir, float) and math.isnan(rootdir)):
+            continue
+        mat_path = Path(rootdir) / str(matname)
+        if not mat_path.is_file():
+            mat_path = Path(rootdir) / f"{matname}.pkl"
+        if not mat_path.is_file():
+            continue
+        try:
+            with open(mat_path, "rb") as f:
+                return pickle.load(f).get("sleep_def_min")
+        except (pickle.UnpicklingError, EOFError, OSError):
+            continue
+    return None
 
 
 def step2_build_graphpad_export(state):
     print("\n--- Step 2: Aggregate experiments into a GraphPad Excel export ---")
+    set_step("2 - aggregate to Excel")
     default_folder = state.get("last_folder")
     xl2read_path = None
     if default_folder:
@@ -946,20 +1267,35 @@ def step2_build_graphpad_export(state):
                 break
     if xl2read_path:
         print(f"Using {xl2read_path} (found automatically)")
+        record("mat2read", xl2read_path, "auto-detected")
     else:
         xl2read_path = ask_file(
             'Select the "mat2read" file listing the experiments to aggregate (.xlsx or .txt)',
             default_folder,
             filetypes=(("mat2read files", "*.xlsx *.txt"), ("Excel files", "*.xlsx"), ("Text files", "*.txt")),
+            label="mat2read",
         )
     primedir = xl2read_path.parent
     state["last_folder"] = primedir
 
     default_max_days = state.get("max_days", 3)
-    max_days = ask_number("How many days should be aggregated?", default_max_days)
+    max_days = ask_number("How many days should be aggregated?", default_max_days, label="Days aggregated")
     state["max_days"] = max_days
 
     zt_windows = ask_zt_windows()
+
+    selected_metrics = ask_multi_choice(
+        "Which metrics do you want in the output? Enter 'all', or pick by number "
+        "(e.g. '1 4 8' or '1-5, 16-17') or by name. The per-day 30-min binned sleep "
+        "traces are always included -- they are what the Step 4 sleep profiles are built from.",
+        SIMPLE_METRIC_SHEETS,
+        default="all",
+        label="Metrics to export",
+    )
+    print("Metrics selected: " + ", ".join(selected_metrics))
+    # The ZT profiles of P(Wake)/P(Doze) (Wiggin et al. Fig. 1B) are only worth the
+    # extra sheets if you actually asked for those metrics.
+    want_prob_profiles = any(n in selected_metrics for n in ("P(Wake)", "P(Doze)"))
 
     if xl2read_path.suffix.lower() == ".txt":
         raw_rows = read_mat2read_txt(xl2read_path)
@@ -969,21 +1305,41 @@ def step2_build_graphpad_export(state):
         raw_rows = [r for r in ws_in.iter_rows(values_only=True) if r and r[0] is not None]
     num_groups = len(raw_rows[0]) - 2
 
+    record("Experiments pooled", "; ".join(f"{r[0]} [{r[1]}]" for r in raw_rows), "derived")
+    record("Group columns", "; ".join(str(g) for g in raw_rows[0][2:]), "derived")
+
+    sleep_def_min = read_sleep_def_from_experiments(raw_rows)
+    if sleep_def_min is None:
+        sleep_def_min = state.get("sleep_def_min") or DEFAULT_SLEEP_DEF_MIN
+        print(f"Note: the .pkl files don't record a sleep definition (older Step 1 run) -- "
+              f"assuming {sleep_def_min} minutes for labelling purposes only.")
+        record("Sleep definition (minutes of immobility)",
+               f"{sleep_def_min} (assumed -- the .pkl predates this feature)", "derived")
+    else:
+        print(f"Sleep definition used when these experiments were processed: {sleep_def_min} minutes.")
+        record("Sleep definition (minutes of immobility)",
+               f"{sleep_def_min} (read back from the .pkl)", "auto-detected")
+    state["sleep_def_min"] = sleep_def_min
+    # Non-standard sleep definitions get their own filenames, so a 3-min run can't
+    # silently overwrite the 5-min results you are comparing it against.
+    sleep_def_tag = "" if sleep_def_min == DEFAULT_SLEEP_DEF_MIN else f"_sleepdef{sleep_def_min}min"
+
     all_outputs = []
     for zt_lo, zt_hi in zt_windows:
         if zt_lo == 0 and zt_hi == 24:
-            out_name = re.sub(r"mat2read\.(?:xlsx|txt)$", "_24hrs_multiColumnByFly.xlsx", xl2read_path.name)
+            out_name = re.sub(r"mat2read\.(?:xlsx|txt)$",
+                              f"_24hrs{sleep_def_tag}_multiColumnByFly.xlsx", xl2read_path.name)
         else:
             out_name = re.sub(
                 r"mat2read\.(?:xlsx|txt)$",
-                f"_ZT{fmt_zt_hour(zt_lo)}to{fmt_zt_hour(zt_hi)}_multiColumn.xlsx",
+                f"_ZT{fmt_zt_hour(zt_lo)}to{fmt_zt_hour(zt_hi)}{sleep_def_tag}_multiColumn.xlsx",
                 xl2read_path.name,
             )
         output_path = primedir / out_name
 
         wb = openpyxl.Workbook()
         wb.remove(wb.active)
-        for name in SIMPLE_METRIC_SHEETS:
+        for name in selected_metrics:
             _write_row(_ws(wb, name), 1, 1, [0])  # placeholder to force sheet order; overwritten below
         for ws in wb.worksheets:
             ws.delete_rows(1)
@@ -1026,7 +1382,10 @@ def step2_build_graphpad_export(state):
                 median_active = np.zeros(n_flies)
                 mean_counts_bout = np.zeros(n_flies)
                 peak_activity = np.zeros(n_flies)
+                p_wake = np.full(n_flies, np.nan)
+                p_doze = np.full(n_flies, np.nan)
                 for xi in range(n_flies):
+                    p_wake[xi], p_doze[xi] = transition_probabilities(activity1_zt[xi])
                     num_sleep[xi], mean_sleep[xi], median_sleep[xi], longest_sleep[xi], latency[xi] = \
                         summarize_windowed_bouts(sleep_runs[xi], win_lo, win_hi)
                     num_active[xi], mean_active[xi], median_active[xi], _longest_active, _latency_active = \
@@ -1040,10 +1399,9 @@ def step2_build_graphpad_export(state):
                         peak_activity[xi] = float(np.nanmax(activity1_zt[xi]))
 
                 col_for_day = 2 + di  # A=1,B=2 -> di=1 => column C = 3
-                sheet_name_day = f"Day {di} 30 min binned sleep"
 
                 if prev_row == 2:
-                    for name in SIMPLE_METRIC_SHEETS:
+                    for name in selected_metrics:
                         ws = _ws(wb, name)
                         ws.cell(row=1, column=1, value="Genotype")
                         ws.cell(row=1, column=2, value="Exp Row#")
@@ -1051,11 +1409,13 @@ def step2_build_graphpad_export(state):
 
                 labels2write = [group_name] * n_flies
 
-                values_by_sheet = dict(zip(SIMPLE_METRIC_SHEETS, [
+                all_values_by_sheet = dict(zip(SIMPLE_METRIC_SHEETS, [
                     total_sleep, total_activity_rate, total_activity_counts, percent_rest, percent_active,
                     mean_sleep, median_sleep, num_sleep, longest_sleep, latency,
                     num_active, mean_active, median_active, mean_counts_bout, peak_activity,
+                    p_wake, p_doze,
                 ]))
+                values_by_sheet = {name: all_values_by_sheet[name] for name in selected_metrics}
                 for name, values in values_by_sheet.items():
                     ws_stat = _ws(wb, name)
                     _write_col(ws_stat, prev_row, col_for_day, values)
@@ -1064,23 +1424,50 @@ def step2_build_graphpad_export(state):
                             ws_stat.cell(row=prev_row + i, column=1, value=lbl)
                         _write_col(ws_stat, prev_row, 2, exp_num)
 
-                ws_day = _ws(wb, sheet_name_day)
-                if prev_row == 2:
-                    ws_day.cell(row=1, column=1, value="Genotype")
-                    ws_day.cell(row=1, column=2, value="Exp Row#")
-                    ws_day.cell(row=1, column=3, value=f"Day {di}")
-                for i, lbl in enumerate(labels2write):
-                    ws_day.cell(row=prev_row + 1 + i, column=1, value=lbl)
-                _write_col(ws_day, prev_row + 1, 2, exp_num)
-                _write_matrix(ws_day, prev_row + 1, 3, sleep_per_min)
-                if di == 1 and gi == 0:
-                    _write_row(ws_day, prev_row, 3, np.arange(0.5, 24.5, 0.5))
+                # Per-day, per-30-min-bin traces. These always span the whole 24 h
+                # regardless of the ZT window, because they are what the Step 4 ZT
+                # profiles are drawn from. "sleep" and "activity" are always written;
+                # the two probability traces only when you asked for those metrics.
+                bin_centres = np.arange(0.5, 24.5, 0.5)
+                binned_families = [
+                    (sleep_per_min, bin_centres, f"Day {di} 30 min binned sleep"),
+                    (gathered["activity30_full"], bin_centres, f"Day {di} 30 min binned activity"),
+                ]
+                if want_prob_profiles:
+                    activity1_full = gathered["activity1_full"]
+                    prob_tps, pw_rows, pd_rows = None, [], []
+                    for xi in range(n_flies):
+                        prob_tps, pw, pdz = sliding_transition_probabilities(activity1_full[xi])
+                        pw_rows.append(pw)
+                        pd_rows.append(pdz)
+                    win = PROB_WINDOW_MINUTES
+                    binned_families += [
+                        (np.vstack(pw_rows), prob_tps, f"Day {di} {win}min sliding P(Wake)"),
+                        (np.vstack(pd_rows), prob_tps, f"Day {di} {win}min sliding P(Doze)"),
+                    ]
+
+                for matrix, timepoints, sheet_name in binned_families:
+                    ws_day = _ws(wb, sheet_name)
+                    if prev_row == 2:
+                        ws_day.cell(row=1, column=1, value="Genotype")
+                        ws_day.cell(row=1, column=2, value="Exp Row#")
+                        ws_day.cell(row=1, column=3, value=f"Day {di}")
+                    for i, lbl in enumerate(labels2write):
+                        ws_day.cell(row=prev_row + 1 + i, column=1, value=lbl)
+                    _write_col(ws_day, prev_row + 1, 2, exp_num)
+                    _write_matrix(ws_day, prev_row + 1, 3, matrix)
+                    # Time axis on every day sheet, not just Day 1: the sliding and
+                    # 30-min families have different grids, so a reader (and Step 4)
+                    # must not have to infer one sheet's axis from another's.
+                    if gi == 0:
+                        _write_row(ws_day, prev_row, 3, timepoints)
 
                 print(f'Wrote day {di} for "{group_name}" ({n_flies} flies) to column {col_for_day}')
             prev_row += len(labels2write)
 
         wb.save(output_path)
         print(f"Saved {output_path}")
+        record(f"Multi-column export (ZT{fmt_zt_hour(zt_lo)}-{fmt_zt_hour(zt_hi)})", output_path, "output")
         all_outputs.append(output_path)
 
     state["output_xlsx"] = all_outputs
@@ -1095,7 +1482,20 @@ def _remove_dead_animals_from_file(input_path):
     output_path = input_path.with_name(input_path.stem + "_edited" + input_path.suffix)
 
     wb_in = openpyxl.load_workbook(input_path, data_only=True)
-    ws_act = wb_in["Activity Counts Per min"]
+    # Whichever selected metric sheet is available -- a blank cell in any of them
+    # means that fly has no data for that day. P(Wake)/P(Doze) are excluded from the
+    # candidates because they are legitimately blank when mathematically undefined.
+    ref_sheet = next((n for n in DEAD_CHECK_SHEET_PREFERENCE if n in wb_in.sheetnames), None)
+    if ref_sheet is None:
+        raise SystemExit(
+            f"{input_path.name} has none of the metric sheets Step 3 can use to detect "
+            f"missing data. Re-run Step 2 including at least one of: "
+            + ", ".join(DEAD_CHECK_SHEET_PREFERENCE[:3]) + "."
+        )
+    if ref_sheet != "Activity Counts Per min":
+        print(f'Using "{ref_sheet}" to detect flies with missing data '
+              f'("Activity Counts Per min" was not exported).')
+    ws_act = wb_in[ref_sheet]
     act_rows = list(ws_act.iter_rows(values_only=True))
     dead_flies = set()
     for i, row in enumerate(act_rows[1:], start=0):  # i = 0-based fly index
@@ -1134,6 +1534,10 @@ def _remove_dead_animals_from_file(input_path):
 
     wb_out.save(output_path)
     print(f"Removed {len(dead_flies)} dead/incomplete animal row(s) from {input_path.name}. Saved {output_path}")
+    record(f"Sheet used to detect missing data ({input_path.name})", ref_sheet, "derived")
+    record(f"Dead/incomplete rows removed from {input_path.name}",
+           f"{len(dead_flies)} (rows {sorted(dead_flies)})" if dead_flies else "0", "derived")
+    record("Cleaned export", output_path, "output")
     return output_path
 
 
@@ -1141,13 +1545,14 @@ def step3_remove_dead_animals(state):
     """Returns the updated state, with output_xlsx pointed at the _edited file(s)
     so Step 4 defaults to visualizing the cleaned data."""
     print("\n--- Step 3: Remove dead animals from a GraphPad Excel export ---")
+    set_step("3 - remove dead animals")
     prev_outputs = state.get("output_xlsx")
     if prev_outputs:
         names = ", ".join(p.name for p in prev_outputs)
         use_last = ask_choice(
             f"Clean the file(s) just created in step 2 ({names})?",
             ["Yes", "No, let me pick a different file"],
-            0,
+            0, label="Clean the file(s) from Step 2",
         )
     else:
         use_last = "No, let me pick a different file"
@@ -1155,7 +1560,8 @@ def step3_remove_dead_animals(state):
     if use_last == "Yes":
         input_paths = prev_outputs
     else:
-        input_paths = [ask_file("Select the multi-column Excel file to clean", state.get("last_folder"))]
+        input_paths = [ask_file("Select the multi-column Excel file to clean", state.get("last_folder"),
+                                label="Multi-column file to clean")]
 
     state["output_xlsx"] = [_remove_dead_animals_from_file(p) for p in input_paths]
     return state
@@ -1166,13 +1572,14 @@ def step3_remove_dead_animals(state):
 # =============================================================================
 def step4_generate_prism_export(state):
     print("\n--- Step 4: Generate Prism-ready plots & tables ---")
+    set_step("4 - Prism plots & tables")
     prev_outputs = state.get("output_xlsx")
     if prev_outputs:
         names = ", ".join(p.name for p in prev_outputs)
         use_last = ask_choice(
             f"Use the multi-column export(s) just created ({names})?",
             ["Yes", "No, let me pick a different file"],
-            0,
+            0, label="Use the file(s) from the previous step",
         )
     else:
         use_last = "No, let me pick a different file"
@@ -1180,7 +1587,8 @@ def step4_generate_prism_export(state):
     if use_last == "Yes":
         input_paths = prev_outputs
     else:
-        input_paths = [ask_file("Select the multi-column Excel export to visualize", state.get("last_folder"))]
+        input_paths = [ask_file("Select the multi-column Excel export to visualize", state.get("last_folder"),
+                                label="Multi-column file to visualize")]
 
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import sleep_pipeline
@@ -1188,6 +1596,7 @@ def step4_generate_prism_export(state):
     for input_path in input_paths:
         out_dir = sleep_pipeline.run(str(input_path))
         print(f"Saved Prism-ready plots and data to {out_dir}")
+        record(f"Prism export folder ({input_path.name})", out_dir, "output")
     return state
 
 
@@ -1197,44 +1606,55 @@ def step4_generate_prism_export(state):
 def prompt_steps():
     labels = [
         "0) Import raw Monitor*.txt dumps -> Raw Data folder + channelList "
-        "(optional -- only if starting from raw monitor dumps rather than an existing Raw Data folder)",
+        "(skip with '1 2 3 4' if you already have a Raw Data folder)",
         "1) Process one experiment (channelList -> .pkl + PDF)",
         "2) Aggregate experiments into a GraphPad Excel export",
         "3) Remove dead animals from a GraphPad Excel export",
         "4) Generate Prism-ready plots & tables",
     ]
+    default = "0 1 2 3 4"
     if HAS_GUI:
         txt = simpledialog.askstring(
             "Input",
-            "Which step(s) do you want to run? e.g. 1 2 3 4 (add 0 first if starting from raw Monitor*.txt dumps)\n"
-            + "\n".join(labels),
-            initialvalue="1 2 3 4",
+            "Which step(s) do you want to run? Press OK to run all of them, "
+            "including Step 0.\n" + "\n".join(labels),
+            initialvalue=default,
         )
     else:
         print("\n".join(labels))
-        txt = input('Enter step numbers to run, e.g. "1 2 3 4" [1 2 3 4]: ').strip()
-    if not txt or not txt.strip():
-        return {1, 2, 3, 4}
-    return {int(x) for x in re.findall(r"\d+", txt)}
+        txt = input(f'Enter step numbers to run [{default}]: ').strip()
+    steps = {0, 1, 2, 3, 4} if (not txt or not txt.strip()) else {int(x) for x in re.findall(r"\d+", txt)}
+    record("Steps to run (as typed)", txt.strip() if (txt and txt.strip()) else f"(blank -> {default})")
+    record("Steps to run (resolved)", " ".join(str(s) for s in sorted(steps)), "derived")
+    return steps
 
 
 def main():
     print("\n=== DAM Sleep Analysis Pipeline ===")
-    steps = prompt_steps()
-    state = {"max_days": None, "output_xlsx": None, "last_folder": Path.cwd()}
+    record("Pipeline script", Path(__file__).resolve(), "derived")
+    state = {"max_days": None, "output_xlsx": None, "last_folder": Path.cwd(), "sleep_def_min": None}
+    try:
+        steps = prompt_steps()
 
-    if 0 in steps:
-        state = step0_import_monitor_data(state)
-    if 1 in steps:
-        state = step1_process_experiment(state)
-    if 2 in steps:
-        state = step2_build_graphpad_export(state)
-    if 3 in steps:
-        state = step3_remove_dead_animals(state)
-    if 4 in steps:
-        state = step4_generate_prism_export(state)
+        if 0 in steps:
+            state = step0_import_monitor_data(state)
+        if 1 in steps:
+            state = step1_process_experiment(state)
+        if 2 in steps:
+            state = step2_build_graphpad_export(state)
+        if 3 in steps:
+            state = step3_remove_dead_animals(state)
+        if 4 in steps:
+            state = step4_generate_prism_export(state)
 
-    print("\nPipeline finished.")
+        print("\nPipeline finished.")
+    finally:
+        # In a finally block so that a run you cancel, or one that stops on an
+        # error, still leaves a record of how far it got and with what settings.
+        set_step("end")
+        log_path = write_run_log(state.get("last_folder") or Path.cwd())
+        if log_path:
+            print(f"Run log (every setting used): {log_path}")
 
 
 if __name__ == "__main__":

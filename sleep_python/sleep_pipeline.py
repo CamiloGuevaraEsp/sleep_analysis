@@ -47,14 +47,34 @@ plt.rcParams['font.size'] = 11
 
 RNG = np.random.default_rng(42)
 
+# A DAM daily profile is one 24 h ZT cycle by construction. Held explicitly rather
+# than inferred from max(timepoints), because the sliding-window probability traces
+# are labelled by window CENTRE and so stop just short of 24 -- inferring the span
+# from them would misplace the lights-off shading and the double-plot offset.
+ZT_DAY_HOURS = 24.0
+
+# Checked in this order, so 'P(Wake)'/'P(Doze)' win over the generic words.
+FAMILY_TOKENS = ('P(Wake)', 'P(Doze)', 'activity', 'sleep')
+
 
 # ---------------------------------------------------------------------------
 # 1. Load & classify sheets
 # ---------------------------------------------------------------------------
 
 def load_workbook_sheets(path):
+    """Returns (workbook, binned_sheets, metric_sheets).
+
+    binned_sheets is a list of (family, day_num, sheet_name). A day-trace sheet is
+    one whose name carries a day number and the word "binned" or "sliding"; its
+    family is whichever known trace name it mentions, so each kind of trace becomes
+    its own ZT profile instead of all of them being averaged into one. Sheets from
+    older exports named just "Day N 30 min binned" fall back to 'sleep'.
+
+    Families do not have to share a time grid -- the probability traces use a
+    sliding window with a finer step than the 30-min sleep/activity bins -- so each
+    sheet's own time-axis row is what gets used."""
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
-    binned_sheets = []   # (day_num, sheet_name)
+    binned_sheets = []   # (family, day_num, sheet_name)
     metric_sheets = []   # sheet_name
     for name in wb.sheetnames:
         ws = wb[name]
@@ -65,12 +85,24 @@ def load_workbook_sheets(path):
         if col0 != 'genotype':
             continue
         m = re.search(r'day\s*(\d+)', name, re.IGNORECASE)
-        if 'bin' in name.lower() and m:
-            binned_sheets.append((int(m.group(1)), name))
+        if m and re.search(r'binned|sliding', name, re.IGNORECASE):
+            low = name.lower()
+            family = next((t for t in FAMILY_TOKENS if t.lower() in low), 'sleep')
+            binned_sheets.append((family, int(m.group(1)), name))
         else:
             metric_sheets.append(name)
-    binned_sheets.sort(key=lambda t: t[0])
+    binned_sheets.sort(key=lambda t: (t[0], t[1]))
     return wb, binned_sheets, metric_sheets
+
+
+# How each binned family is labelled and drawn. Colours follow Wiggin et al. 2020
+# Fig. 1B: activity black, sleep blue, P(Doze) green, P(Wake) red.
+PROFILE_STYLE = {
+    'activity': {'label': 'Activity (counts/bin)', 'color': '#0b0b0b', 'order': 0},
+    'sleep':    {'label': 'Sleep per bin (min)',   'color': '#2a78d6', 'order': 1},
+    'P(Doze)':  {'label': 'P(Doze)',               'color': '#1baf7a', 'order': 2},
+    'P(Wake)':  {'label': 'P(Wake)',               'color': '#e34948', 'order': 3},
+}
 
 
 def find_data_start_row(ws):
@@ -150,10 +182,14 @@ def build_dataset(path):
         genos, values, n_days = read_metric_sheet(wb[name])
         metrics[name] = {'genos': genos, 'values': values, 'n_days': n_days}
 
-    profile = None
-    if binned_sheets:
+    families = {}
+    for family, day_num, name in binned_sheets:
+        families.setdefault(family, []).append((day_num, name))
+
+    profiles = {}
+    for family, sheets in families.items():
         mats, day_nums, genos_ref, timepoints = [], [], None, None
-        for day_num, name in binned_sheets:
+        for day_num, name in sorted(sheets):
             genos, values, tp = read_binned_sheet(wb[name])
             if genos_ref is None:
                 genos_ref = genos
@@ -165,6 +201,8 @@ def build_dataset(path):
             day_nums.append(day_num)
         min_rows = min(m.shape[0] for m in mats)
         mats = [m[:min_rows] for m in mats]
+        # One profile per fly = its average across recording days (Wiggin et al.
+        # 2020 average each individual's profile over days before pooling).
         avg = np.nanmean(np.stack(mats, axis=0), axis=0)
 
         # Continuous multi-day timeline: each day's bins laid end-to-end (day N
@@ -173,7 +211,12 @@ def build_dataset(path):
         continuous_timepoints = [day_idx * day_span + t for day_idx in range(len(mats)) for t in timepoints]
         continuous_values = np.hstack(mats)
 
-        profile = {
+        # If these came from a sliding window, remember its width so the plots can
+        # say so -- a smoothed trace must never be shown as if it were raw bins.
+        win = re.search(r'(\d+)\s*min\s*sliding', sorted(sheets)[0][1], re.IGNORECASE)
+        profiles[family] = {
+            'family': family,
+            'window_minutes': int(win.group(1)) if win else None,
             'genos': genos_ref[:min_rows],
             'values': avg,
             'timepoints': timepoints,
@@ -182,6 +225,10 @@ def build_dataset(path):
             'continuous_timepoints': continuous_timepoints,
             'continuous_values': continuous_values,
         }
+
+    # 'profile' (singular) stays pointed at the sleep trace so every existing
+    # caller and plot keeps working unchanged.
+    profile = profiles.get('sleep')
 
     ref_genos = None
     for m in metrics.values():
@@ -194,6 +241,7 @@ def build_dataset(path):
     return {
         'metrics': metrics,
         'profile': profile,
+        'profiles': profiles,
         'group_order': group_order,
         'has_sex': has_sex,
         'sex_of': sex_of,
@@ -381,6 +429,121 @@ def plot_profile_continuous_by_sex(timepoints, values_by_group, sex_of, base_ord
     return fnames
 
 
+def _mean_ci(mat):
+    """Column-wise mean and half-width of the 95% CI of the mean, ignoring NaN.
+    Uses 1.96 x SEM (normal approximation) rather than a t quantile, to avoid a
+    scipy dependency -- with n >= 15 flies per group the difference is small, and
+    every plot says so on the axis label. Columns with fewer than 2 usable values
+    get a NaN interval instead of a fake zero-width one."""
+    mean = np.nanmean(mat, axis=0)
+    n = np.sum(~np.isnan(mat), axis=0)
+    sd = np.nanstd(mat, axis=0, ddof=1)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        half = 1.96 * sd / np.sqrt(n)
+    half = np.where(n >= 2, half, np.nan)
+    return mean, half
+
+
+def _double_plot(timepoints, values, span=ZT_DAY_HOURS):
+    """Chronobiology double-plot: repeat the 24 h cycle so ZT0-24 is shown twice,
+    the second copy shifted by one day. Makes events near ZT0/ZT24 readable
+    instead of being cut in half at the edges of the axis."""
+    x = list(timepoints) + [t + span for t in timepoints]
+    return np.array(x), np.concatenate([values, values])
+
+
+def _shade_nights_zt(ax, span, n_cycles):
+    for c in range(n_cycles):
+        ax.axvspan(c * span + span / 2, (c + 1) * span, color='#d8d5cf', alpha=0.55,
+                   zorder=0, linewidth=0)
+
+
+def plot_wake_doze_profile(profiles, geno, group_order, out_dir, n_days):
+    """Stacked double-plotted ZT profiles for one genotype -- Activity, % Time
+    Asleep, P(Doze) and P(Wake) -- population mean with 95% CI band, lights-off
+    shaded. Layout follows Wiggin et al. 2020 Fig. 1B."""
+    available = [f for f in sorted(PROFILE_STYLE, key=lambda k: PROFILE_STYLE[k]['order'])
+                 if f in profiles]
+    if not available:
+        return None
+
+    fig, axes = plt.subplots(len(available), 1, figsize=(8.5, 2.05 * len(available)), sharex=True)
+    axes = np.atleast_1d(axes)
+    span = ZT_DAY_HOURS
+
+    for ax, family in zip(axes, available):
+        prof = profiles[family]
+        mat = by_group(prof['genos'], prof['values'], group_order)[geno]
+        if mat.ndim != 2 or mat.shape[0] == 0:
+            plt.close(fig)
+            return None
+        values = mat
+        label = PROFILE_STYLE[family]['label']
+        # "% Time Asleep" is the sleep trace expressed as a percentage of the bin.
+        if family == 'sleep':
+            bin_minutes = ZT_DAY_HOURS * 60.0 / len(prof['timepoints'])
+            values = mat / bin_minutes * 100.0
+            label = '% Time Asleep'
+        mean, half = _mean_ci(values)
+        x, y = _double_plot(prof['timepoints'], mean)
+        _, h = _double_plot(prof['timepoints'], half)
+        _shade_nights_zt(ax, span, 2)
+        color = PROFILE_STYLE[family]['color']
+        ax.plot(x, y, color=color, linewidth=1.8, zorder=3)
+        ax.fill_between(x, y - h, y + h, color=color, alpha=0.22, linewidth=0, zorder=2)
+        if prof.get('window_minutes'):
+            label += f"\n({prof['window_minutes']} min sliding)"
+        ax.set_ylabel(label, fontsize=9.5)
+        ax.set_xlim(0, 2 * span)
+        if family.startswith('P('):
+            ax.set_ylim(0, None)
+
+    axes[-1].set_xlabel('Zeitgeber Time (ZT, hours) -- double plotted')
+    axes[-1].set_xticks(np.arange(0, 2 * span + 1, 6))
+    n = sum(1 for g in profiles[available[0]]['genos'] if g == geno)
+    axes[0].set_title(f"{geno}  (n = {n} flies, mean of {n_days} day{'s' if n_days > 1 else ''})\n"
+                      "shaded band = 95% CI of the mean (1.96 x SEM)", fontsize=10.5, pad=8)
+    fig.tight_layout()
+    fname = os.path.join(out_dir, f"Wake_doze_profile_{safe_filename(geno)}.png")
+    fig.savefig(fname, dpi=200)
+    plt.close(fig)
+    return fname
+
+
+def plot_profile_metric(family, profiles, group_order, colors, out_dir):
+    """One ZT profile per binned family, all genotypes overlaid -- the comparison
+    view that Fig. 1B (single genotype) doesn't give you."""
+    prof = profiles[family]
+    by_group_data = by_group(prof['genos'], prof['values'], group_order)
+    span = ZT_DAY_HOURS
+    fig, ax = plt.subplots(figsize=(9, 5.5))
+    _shade_nights_zt(ax, span, 2)
+    for geno in group_order:
+        mean, half = _mean_ci(by_group_data[geno])
+        x, y = _double_plot(prof['timepoints'], mean)
+        _, h = _double_plot(prof['timepoints'], half)
+        color = colors[geno]
+        ax.plot(x, y, color=color, linewidth=1.8, label=geno, zorder=3)
+        ax.fill_between(x, y - h, y + h, color=color, alpha=0.16, linewidth=0, zorder=2)
+    ax.set_xlabel('Zeitgeber Time (ZT, hours) -- double plotted')
+    ax.set_ylabel(PROFILE_STYLE[family]['label'])
+    ax.set_xlim(0, 2 * span)
+    ax.set_xticks(np.arange(0, 2 * span + 1, 6))
+    if family.startswith('P('):
+        ax.set_ylim(0, None)
+    how = (f"{prof['window_minutes']} min sliding window"
+           if prof.get('window_minutes') else f"{int(ZT_DAY_HOURS * 60 / len(prof['timepoints']))} min bins")
+    ax.set_title(f"{PROFILE_STYLE[family]['label']} across the day ({how})\n"
+                 "shaded band = 95% CI of the mean (1.96 x SEM)", fontsize=12, pad=10)
+    ax.legend(loc='lower center', ncol=min(3, len(group_order)), fontsize=8, frameon=False,
+              bbox_to_anchor=(0.5, -0.32 - 0.05 * (len(group_order) // 3)))
+    fig.tight_layout()
+    fname = os.path.join(out_dir, f"{safe_filename(family)}_ZT_profile.png")
+    fig.savefig(fname, dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    return fname
+
+
 # ---------------------------------------------------------------------------
 # 4. Prism-ready workbook
 # ---------------------------------------------------------------------------
@@ -496,6 +659,17 @@ def write_prism_workbook(dataset, out_path):
                                   "(X = continuous hours, days laid end-to-end)",
                                   profile['continuous_timepoints'], by_group_data_cont, group_order)
 
+    # ZT profiles for the other binned traces (activity, P(Wake), P(Doze)) --
+    # the numbers behind the Fig. 1B plots, in the same Prism XY layout.
+    for family, prof in sorted(dataset.get('profiles', {}).items()):
+        if family == 'sleep':
+            continue  # already written above as 'ZT Sleep Profile'
+        label = PROFILE_STYLE.get(family, {}).get('label', family)
+        by_group_data = by_group(prof['genos'], prof['values'], group_order)
+        sheet_title = re.sub(r'[\\/*?:\[\]]', '', f"{family} ZT Profile")[:31]
+        _write_profile_sheet(wb, sheet_title, f"{label} per bin, group Mean/SEM/N",
+                             prof['timepoints'], by_group_data, group_order)
+
     wb.save(out_path)
 
 
@@ -542,6 +716,24 @@ def run(path):
             values_by_group_cont = by_group(prof['genos'], prof['continuous_values'], group_order)
             fname = plot_profile_continuous(prof['continuous_timepoints'], values_by_group_cont, group_order,
                                              colors, prof['day_span'], n_days, combined_dir)
+            print("  Saved", fname)
+
+    # One stacked, double-plotted figure per genotype (layout of Wiggin et al.
+    # 2020 Fig. 1B), plus an all-genotypes overlay for each binned trace.
+    profiles = dataset.get('profiles', {})
+    extra_families = [f for f in profiles if f != 'sleep']
+    if extra_families:
+        profile_dir = os.path.join(out_dir, 'wake_doze_profiles')
+        os.makedirs(profile_dir, exist_ok=True)
+        n_days = len(profiles[next(iter(profiles))]['day_numbers'])
+        for geno in group_order:
+            fname = plot_wake_doze_profile(profiles, geno, group_order, profile_dir, n_days)
+            if fname:
+                print("  Saved", fname)
+        for family in sorted(profiles, key=lambda k: PROFILE_STYLE.get(k, {}).get('order', 99)):
+            if family == 'sleep':
+                continue  # already covered by Sleep_profile.png
+            fname = plot_profile_metric(family, profiles, group_order, colors, profile_dir)
             print("  Saved", fname)
 
     if dataset['has_sex']:
