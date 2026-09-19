@@ -43,6 +43,7 @@ MATLAB .mat files, so it is fully self-contained in Python.
 
 import csv
 import math
+import os
 import pickle
 import re
 import sys
@@ -60,13 +61,103 @@ matplotlib.use("Agg")
 
 try:
     import tkinter as tk
-    from tkinter import filedialog, simpledialog
+    from tkinter import filedialog, messagebox, simpledialog
 
     _root = tk.Tk()
     _root.withdraw()
     HAS_GUI = True
 except Exception:
     HAS_GUI = False
+
+
+# =============================================================================
+# Version + update check
+# =============================================================================
+# Bump __version__ whenever a new version is tagged in the repository; the check
+# below compares this number against the newest tag/release on GitHub.
+__version__ = "1.1"
+REPO_URL = "https://github.com/CamiloGuevaraEsp/sleep_analysis"
+REPO_API = "https://api.github.com/repos/CamiloGuevaraEsp/sleep_analysis"
+UPDATE_CHECK_TIMEOUT_S = 2
+
+
+def parse_version(text):
+    """'v1.2.3' -> (1, 2, 3). Pulls out the numbers and ignores everything else,
+    so a tag like 'v1.1-beta' still compares sensibly. None if nothing numeric."""
+    numbers = re.findall(r"\d+", text or "")
+    return tuple(int(n) for n in numbers) if numbers else None
+
+
+def fetch_latest_version():
+    """Newest version published on GitHub, as (name, url), or None.
+
+    Tries published Releases first and falls back to plain tags, so a version
+    that was tagged but never turned into a Release still gets noticed. Returns
+    None on any problem at all -- no network, GitHub down, rate limited, repo
+    renamed. Deliberately catches everything: an update check must never be able
+    to stop someone analysing their data."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    attempts = (
+        ("/releases/latest", lambda d: (d.get("tag_name"), d.get("html_url"))),
+        ("/tags", lambda d: (d[0]["name"], f"{REPO_URL}/tags") if d else (None, None)),
+    )
+    for endpoint, extract in attempts:
+        try:
+            request = urllib.request.Request(
+                REPO_API + endpoint,
+                headers={"Accept": "application/vnd.github+json",
+                         "User-Agent": "sleep-analysis-pipeline"},
+            )
+            with urllib.request.urlopen(request, timeout=UPDATE_CHECK_TIMEOUT_S) as response:
+                name, url = extract(json.load(response))
+            if name:
+                return name, url or REPO_URL
+        except urllib.error.HTTPError:
+            continue  # e.g. 404 "no Releases published yet" -- worth trying tags
+        except Exception:
+            # No network, DNS failure, timeout: the next endpoint lives on the
+            # same unreachable host, so trying it only doubles the delay for
+            # someone working offline.
+            return None
+    return None
+
+
+def check_for_update():
+    """Tell the user when a newer version exists on GitHub, and stay silent
+    otherwise -- offline, up to date, or GitHub unreachable all print nothing.
+
+    This is the only time the pipeline touches the network. Set the environment
+    variable SLEEP_PIPELINE_NO_UPDATE_CHECK=1 to turn it off entirely."""
+    if os.environ.get("SLEEP_PIPELINE_NO_UPDATE_CHECK"):
+        return
+    try:
+        latest = fetch_latest_version()
+    except Exception:
+        return  # belt and braces: fetch_latest_version already swallows its own
+                # errors, but nothing about a version notice is worth a crash
+    if not latest:
+        return
+    name, url = latest
+    running, available = parse_version(__version__), parse_version(name)
+    if not running or not available or available <= running:
+        return
+
+    message = (f"A newer version of this pipeline is available.\n\n"
+               f"    You are running:   v{__version__}\n"
+               f"    Latest available:  {name}\n\n"
+               f"Download it from:\n{url}\n\n"
+               f"Your current version still works -- this is only a notice, and "
+               f"nothing is downloaded or changed automatically.")
+    if HAS_GUI:
+        try:
+            messagebox.showinfo("Update available", message)
+            return
+        except Exception:
+            pass  # fall through to the terminal notice
+    print("\n" + "=" * 72 + f"\n{message}\n" + "=" * 72)
 
 
 # =============================================================================
@@ -1630,8 +1721,10 @@ def prompt_steps():
 
 
 def main():
-    print("\n=== DAM Sleep Analysis Pipeline ===")
+    print(f"\n=== DAM Sleep Analysis Pipeline (v{__version__}) ===")
+    record("Pipeline version", __version__, "derived")
     record("Pipeline script", Path(__file__).resolve(), "derived")
+    check_for_update()
     state = {"max_days": None, "output_xlsx": None, "last_folder": Path.cwd(), "sleep_def_min": None}
     try:
         steps = prompt_steps()

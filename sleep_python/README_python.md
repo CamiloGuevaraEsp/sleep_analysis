@@ -362,7 +362,42 @@ copy/paste-ready workbook for GraphPad Prism.
 
 ---
 
-## 5. The run log
+## 5. Update notice
+
+On startup the pipeline asks GitHub whether a newer version has been published,
+and prints (or pops up) a short notice with the download link if so:
+
+```
+========================================================================
+A newer version of this pipeline is available.
+
+    You are running:   v1.0
+    Latest available:  v1.1
+
+Download it from:
+https://github.com/CamiloGuevaraEsp/sleep_analysis/releases/tag/v1.1
+
+Your current version still works -- this is only a notice, and nothing is
+downloaded or changed automatically.
+========================================================================
+```
+
+- **Nothing is downloaded or installed.** It shows a link; updating is your
+  choice, and your current version keeps working.
+- **Offline is fine.** No internet, GitHub down, or a firewall all mean the
+  check gives up quietly after about two seconds and the run continues.
+- **It is the only time the pipeline touches the network**, and it sends
+  nothing about you or your data -- just a plain read of the repo's public
+  version list.
+- **To disable it**, set the environment variable
+  `SLEEP_PIPELINE_NO_UPDATE_CHECK=1` before running.
+
+The running version is recorded in the run log, so you can always tell which
+version produced a given result.
+
+---
+
+## 6. The run log
 
 Every run appends to **`sleep_pipeline_run_log.csv`** in the experiment
 folder, so you can always answer "what settings produced this file?" without

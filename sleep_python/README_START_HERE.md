@@ -347,6 +347,18 @@ Run log (every setting used): .../sleep_pipeline_run_log.csv
 
 ---
 
+## Part 6b — "A newer version is available"
+
+If a newer version of the pipeline has been published, you'll see a short notice
+when it starts, with a link. Nothing is downloaded or installed — it's just
+telling you a newer one exists. Your version keeps working exactly as before, so
+you can ignore it and carry on, or open the link and download the update later.
+
+If you have no internet, you won't see anything: the check gives up quietly
+after a couple of seconds and the analysis runs normally.
+
+---
+
 ## Part 7 — Where your results are
 
 Open your experiment folder (`20260813`). You'll find:

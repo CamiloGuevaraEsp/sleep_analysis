@@ -346,6 +346,24 @@ The `Prism_ready_data.xlsx` workbook contains data formatted for easy transfer i
 
 ---
 
+## 6a. Update notice
+
+On startup the pipeline asks GitHub whether a newer version has been published, and shows a short notice with the download link if so.
+
+* **Nothing is downloaded or installed.** It shows a link; updating is your choice, and your current version keeps working.
+* **Offline is fine.** No internet, GitHub unreachable, or a corporate firewall all mean the check gives up quietly after about two seconds and the run continues.
+* **It is the only time the pipeline touches the network**, and it sends nothing about you or your data.
+* **To disable it**, set `SLEEP_PIPELINE_NO_UPDATE_CHECK=1` before running:
+
+```powershell
+$env:SLEEP_PIPELINE_NO_UPDATE_CHECK=1
+py run_sleep_analysis_pipeline.py
+```
+
+The running version is recorded in the run log, so you can always tell which version produced a given result.
+
+---
+
 ## 6b. The run log
 
 Every run appends to **`sleep_pipeline_run_log.csv`** in the experiment folder, so you can always answer "what settings produced this file?" without relying on memory. Open it in Excel.
