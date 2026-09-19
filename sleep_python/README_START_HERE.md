@@ -325,13 +325,24 @@ ways.
 
 ---
 
-**14. "Clean the file(s) just created in step 2?"**
+**14. "Bout metrics: count only bouts that START inside the ZT window, or every
+bout that OVERLAPS it?"**
+
+→ **Press Enter** for the first option if you're analysing whole days.
+
+Only think about this if you chose a short window (say 2 hours) in question 12.
+Then pick the second option — otherwise a fly that was already asleep when your
+window began is counted as having had no sleep bouts at all.
+
+---
+
+**15. "Clean the file(s) just created in step 2?"**
 
 → **Yes** (press `Enter`). This removes flies with missing data.
 
 ---
 
-**15. "Use the multi-column export(s) just created?"**
+**16. "Use the multi-column export(s) just created?"**
 
 → **Yes** (press `Enter`). This makes the graphs.
 
@@ -368,6 +379,7 @@ Open your experiment folder (`20260813`). You'll find:
 | **`..._edited.xlsx`** | **Your main results.** One sheet per metric, one row per fly, one column per day. Dead flies already removed. |
 | **`..._prism_export/`** folder | Your graphs and Prism tables — see below |
 | `..._channelList.pdf` | One page per fly showing its activity trace. Flip through this to sanity-check your data. |
+| **`..._raster_sleep.png`**, **`..._raster_activity.png`** | **Every fly at a glance** — one row per fly, one pixel per minute, all days side by side. The quickest way to spot a dead fly or a broken channel. Yellow/navy bar on top = lights on/off. Pink blocks = missing data. Red mark on the left = fly excluded for behavioural death. |
 | `sleep_pipeline_run_log.csv` | Every setting you chose, with the date and time. See below. |
 | `..._channelList.pkl` | Internal working file. Ignore it, don't delete it. |
 | `Raw Data/` folder | The per-fly files it extracted. Ignore. |

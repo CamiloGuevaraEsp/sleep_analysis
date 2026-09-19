@@ -206,7 +206,11 @@ It produces:
 ```text
 <name>_channelList.pkl
 <name>_channelList.pdf
+<name>_channelList_raster_sleep.png
+<name>_channelList_raster_activity.png
 ```
+
+The two raster images show **one row per fly and one pixel per minute**, with all recording days end to end and flies grouped by genotype. This is the fastest way to spot a stuck channel, a fly that died mid-experiment, or a whole monitor behaving oddly. A strip above the plot marks lights on (yellow) and off (navy), minutes of missing data are drawn in pink rather than silently as zero activity, and flies excluded for behavioural death carry a red mark in the left margin.
 
 Run Step 1 once for each experiment.
 
@@ -221,6 +225,7 @@ It asks for:
 * The `mat2read` file
 * The number of recording days
 * The ZT range(s) to analyze
+* **How to count bouts** — whether a bout must *start* inside the ZT window, or whether any bout *overlapping* it counts (press Enter for "start", which is right for whole days)
 * **Which metrics to include** in the output
 
 Examples for the ZT range:
@@ -248,6 +253,13 @@ Sleep (mins), P(Wake)
 Each selected metric becomes one sheet in the workbook. Metrics you do not select are not computed or written. The per-day 30-minute binned sleep traces are always included, because the Step 4 sleep profiles are built from them.
 
 The output is an `.xlsx` file containing one sheet per selected metric plus the 30-minute sleep traces.
+
+#### Short ZT windows (2-6 hours)
+
+Two things behave differently when the window is much shorter than a day, and both are now handled:
+
+* **Bout counting.** In the default `start` mode, a fly already asleep when the window opens contributes no bout at all. Over a 2-hour window that affected a third of fly-days in our test data, each reported as "0 bouts, 0 latency". **Overlap** mode counts bouts in progress, clipped to the window, and gives a fly already mid-bout a latency of 0 ("already asleep"), distinct from the all-zeros of a fly that never slept. Overlap-mode files are named `..._overlapbouts_...` so they cannot overwrite start-mode ones.
+* **Dead-fly detection.** Step 3 treats a blank in `Activity Counts Per min` as "no data". That blank came from 0 counts divided by 0 waking minutes — over a whole day a fly that never moved is dead, so this worked, but over a short window it merely means the fly slept through it, and healthy flies were being deleted from every sheet. A blank is now reserved for a fly that never moved for the **whole day**. Full-day runs are unaffected.
 
 #### The 17 metrics
 

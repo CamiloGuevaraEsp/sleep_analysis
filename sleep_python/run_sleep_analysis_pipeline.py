@@ -75,7 +75,7 @@ except Exception:
 # =============================================================================
 # Bump __version__ whenever a new version is tagged in the repository; the check
 # below compares this number against the newest tag/release on GitHub.
-__version__ = "1.1"
+__version__ = "1.2"
 REPO_URL = "https://github.com/CamiloGuevaraEsp/sleep_analysis"
 REPO_API = "https://api.github.com/repos/CamiloGuevaraEsp/sleep_analysis"
 UPDATE_CHECK_TIMEOUT_S = 2
@@ -896,6 +896,101 @@ def read_channel_list_txt(path):
     return rows
 
 
+def plot_rasters(raster_rows, max_days, output_base, exp_name, sleep_def_min):
+    """One row per fly, one pixel per minute, all recording days end to end --
+    the view that makes an odd fly, a dead channel or a data gap obvious at a
+    glance, which per-fly pages and 30-min bins both hide.
+
+    Two images: sleep (binary) and activity (counts). Rows are grouped by
+    genotype with separators, minutes of missing data are drawn in pink rather
+    than silently as zero, and flies excluded for behavioural death are marked
+    in the left margin."""
+    if not raster_rows:
+        return []
+
+    sleep = np.ma.masked_invalid(np.vstack([r["sleep"] for r in raster_rows]))
+    activity = np.ma.masked_invalid(np.vstack([r["activity"] for r in raster_rows]))
+    n_flies, n_minutes = sleep.shape
+    hours = n_minutes / 60.0
+
+    # Boundaries between genotype groups, for separator lines and labels.
+    groups = [r["group"] for r in raster_rows]
+    bounds, start = [], 0
+    for i in range(1, n_flies + 1):
+        if i == n_flies or groups[i] != groups[start]:
+            bounds.append((groups[start], start, i))
+            start = i
+
+    written = []
+    panels = [
+        ("sleep", sleep, "Greys", 0, 1,
+         f"Sleep raster -- 1 min per pixel, dark = asleep (>= {sleep_def_min} min immobile)"),
+        ("activity", activity, "magma_r", 0, None,
+         "Activity raster -- 1 min per pixel, dark = more beam crossings"),
+    ]
+    for kind, data, cmap_name, vmin, vmax, title in panels:
+        if vmax is None:  # clip activity so one frantic minute doesn't flatten the rest
+            positive = data.compressed()
+            positive = positive[positive > 0]
+            vmax = float(np.percentile(positive, 99)) if positive.size else 1.0
+            vmax = max(vmax, 1.0)
+
+        # A shaded overlay is invisible on a black-and-white raster, so lights
+        # on/off gets its own strip above the image instead.
+        fig, (ax_bar, ax) = plt.subplots(
+            2, 1, sharex=True,
+            figsize=(max(10.0, 1.7 * max_days), max(4.0, 0.10 * n_flies + 2.2)),
+            gridspec_kw={"height_ratios": [1, 26], "hspace": 0.03},
+        )
+        for d in range(max_days):
+            ax_bar.axvspan(d * 24, d * 24 + 12, color="#f2c94c")       # lights on
+            ax_bar.axvspan(d * 24 + 12, (d + 1) * 24, color="#2b3a55")  # lights off
+        ax_bar.set_yticks([])
+        ax_bar.set_ylabel("light", rotation=0, ha="right", va="center", fontsize=7.5)
+        for spine in ax_bar.spines.values():
+            spine.set_visible(False)
+
+        cmap = plt.get_cmap(cmap_name).copy()
+        cmap.set_bad("#f2a0a8")  # missing minutes, impossible to mistake for data
+        image = ax.imshow(data, aspect="auto", interpolation="nearest", cmap=cmap,
+                          vmin=vmin, vmax=vmax, extent=[0, hours, n_flies, 0])
+
+        for d in range(1, max_days):
+            ax.axvline(d * 24, color="#7a7a7a", linewidth=0.7, zorder=4)
+        for _, lo, hi in bounds[:-1]:
+            ax.axhline(hi, color="#2a78d6", linewidth=1.1, zorder=5)
+
+        ax.set_yticks([(lo + hi) / 2 for _, lo, hi in bounds])
+        ax.set_yticklabels([g for g, _, _ in bounds], fontsize=8)
+        ax.set_xticks(np.arange(0, hours + 1, 12))
+        ax.set_xlim(0, hours)
+        ax.set_xlabel("Time (hours from the start of the recording)")
+        ax.set_ylabel("")
+        n_excluded = sum(1 for r in raster_rows if r["excluded"])
+        subtitle = f"{n_flies} flies, {max_days} days"
+        if n_excluded:
+            subtitle += f" -- {n_excluded} marked red were excluded for behavioural death"
+        ax_bar.set_title(f"{exp_name} -- {title}\n{subtitle}", fontsize=10.5, pad=8)
+
+        for i, r in enumerate(raster_rows):
+            if r["excluded"]:
+                ax.plot([-hours * 0.006], [i + 0.5], marker="s", color="firebrick",
+                        markersize=3.5, clip_on=False, zorder=6)
+
+        bar = fig.colorbar(image, ax=[ax_bar, ax], pad=0.012, fraction=0.022)
+        if kind == "sleep":
+            # Binary data: a 0-1 gradient would imply intermediate states exist.
+            bar.set_ticks([0, 1])
+            bar.set_ticklabels(["awake", "asleep"])
+        else:
+            bar.set_label("counts / min", fontsize=9)
+        fname = f"{output_base}_raster_{kind}.png"
+        fig.savefig(fname, dpi=170)
+        plt.close(fig)
+        written.append(fname)
+    return written
+
+
 def step1_process_experiment(state):
     print("\n--- Step 1: Process one experiment ---")
     set_step("1 - process experiment")
@@ -996,6 +1091,7 @@ def step1_process_experiment(state):
     pdf_path = f"{output_base}.pdf"
     all_dat_by_group = {}
     excluded_flies = []
+    raster_rows = []
     with PdfPages(pdf_path) as pdf:
         for group in group_names:
             print(f"Group: {group}")
@@ -1037,11 +1133,11 @@ def step1_process_experiment(state):
                     )
 
                 excluded = death_idx is not None
+                mon_label = monitor_nums[idx] if have_monitor_info else None
                 if excluded:
                     death_day = death_idx // 1440 + 1
                     death_zt = (death_idx % 1440) / 60.0
                     reason_text = f"behavioral death (day {death_day} ZT {death_zt:.1f})"
-                    mon_label = monitor_nums[idx] if have_monitor_info else None
                     print(f"  Channel {channel_nums[idx]} ({group}): excluded -- {reason_text}. "
                           f"Still plotted in the PDF for reference.")
                     excluded_flies.append({
@@ -1050,6 +1146,13 @@ def step1_process_experiment(state):
                     })
 
                 continuous_is_sleep = compute_sleep_binary(continuous_counts, sleep_def_min)
+                # Rasters show every fly, excluded ones included -- seeing why a fly
+                # was dropped is the whole point of looking at one.
+                raster_rows.append({
+                    "group": group, "channel": channel_nums[idx], "monitor": mon_label,
+                    "sleep": np.where(np.isnan(continuous_counts), np.nan, continuous_is_sleep),
+                    "activity": continuous_counts, "excluded": excluded,
+                })
                 if not excluded:
                     sleep_runs_by_fly.append(find_true_runs(continuous_is_sleep == 1))
                     active_runs_by_fly.append(find_true_runs(continuous_is_sleep == 0))
@@ -1106,6 +1209,10 @@ def step1_process_experiment(state):
             group_activity["active_runs"] = active_runs_by_fly
             all_dat_by_group[group] = group_activity
 
+    for fname in plot_rasters(raster_rows, max_days, output_base, exp_name, sleep_def_min):
+        print(f"Saved {fname}")
+        record("Raster plot", fname, "output")
+
     with open(f"{output_base}.pkl", "wb") as f:
         pickle.dump(
             {"all_channel_dat_by_day": all_channel_dat_by_day,
@@ -1146,6 +1253,7 @@ def gather_group_day_data(raw_rows, group_col_idx, day, zt_lo, zt_hi):
     Returns a dict of per-fly arrays/lists (rows aligned across all of them), or
     None if no data was found for this group/day."""
     activity_per_min = []
+    mins_awake_full_day = []
     activity30_full_all = []
     activity1_full_all = []
     sleep_per_min = []
@@ -1195,6 +1303,7 @@ def gather_group_day_data(raw_rows, group_col_idx, day, zt_lo, zt_hi):
         activity1_full = day_entry["activity1"]
         sleep_bin_zt = sleep_bin_full[:, zt_lo_min:zt_hi_min]
         this_mins_awake = sleep_bin_zt.shape[1] - np.nansum(sleep_bin_zt, axis=1)
+        mins_awake_full_day.append(sleep_bin_full.shape[1] - np.nansum(sleep_bin_full, axis=1))
         n_flies_this_exp = sleep_bin_full.shape[0]
 
         activity_per_min.append(activity_full[:, zt_lo_bin:zt_hi_bin])
@@ -1217,6 +1326,7 @@ def gather_group_day_data(raw_rows, group_col_idx, day, zt_lo, zt_hi):
         "activity1_full": np.vstack(activity1_full_all),
         "sleep_per_min": np.vstack(sleep_per_min),
         "mins_awake": np.concatenate(mins_awake),
+        "mins_awake_full_day": np.concatenate(mins_awake_full_day),
         "sleep_binary": np.vstack(sleep_binary),
         "activity1_zt": np.vstack(activity1_zt),
         "exp_num": np.concatenate(exp_num),
@@ -1228,30 +1338,45 @@ def gather_group_day_data(raw_rows, group_col_idx, day, zt_lo, zt_hi):
     }
 
 
-def bouts_starting_in_window(runs, win_lo, win_hi):
-    """runs: list of (start, end) GLOBAL 0-based inclusive minute indices (spanning
-    the fly's whole multi-day recording), sorted by start. Returns (start, clipped_end)
-    for bouts whose START falls within [win_lo, win_hi) -- bouts already in progress
-    when the window opens are excluded (this is what fixes the day/window-boundary
-    'instant latency, phantom bout' artifact), while bouts that start inside the
-    window are kept, with their length clipped to the window's own end."""
+BOUT_MODES = ("start", "overlap")
+
+
+def bouts_in_window(runs, win_lo, win_hi, mode="start"):
+    """runs: (start, end) GLOBAL 0-based inclusive minute indices spanning the fly's
+    whole multi-day recording, sorted by start. Returns the bouts that count for
+    this window, each clipped to it.
+
+    mode="start"  : only bouts whose START falls inside [win_lo, win_hi). A bout
+                    already in progress when the window opens is ignored. This is
+                    what stops a bout spanning midnight being counted twice, and
+                    is the right choice for whole days.
+    mode="overlap": every bout with any minute inside the window, clipped at both
+                    ends. For a short window this is usually what you want -- with
+                    a 2 h window a third of fly-days are mid-bout the whole time
+                    and would otherwise report "no bouts at all"."""
     out = []
     for start, end in runs:
-        if win_lo <= start < win_hi:
-            out.append((start, min(end, win_hi - 1)))
+        if end < win_lo or start >= win_hi:
+            continue
+        if mode == "start" and start < win_lo:
+            continue
+        out.append((max(start, win_lo), min(end, win_hi - 1)))
     return out
 
 
-def summarize_windowed_bouts(runs, win_lo, win_hi):
-    """(num_bouts, mean_len, median_len, longest_len, latency) for bouts starting
-    within [win_lo, win_hi). Latency is 1-based minutes from win_lo to the first
-    such bout; all-zeros if none start in the window (e.g. asleep the whole time)."""
-    qualifying = bouts_starting_in_window(runs, win_lo, win_hi)
+def summarize_windowed_bouts(runs, win_lo, win_hi, mode="start"):
+    """(num_bouts, mean_len, median_len, longest_len, latency) over the bouts
+    selected by `mode`. Latency is 1-based minutes from win_lo to the first bout,
+    except in overlap mode where a fly already mid-bout when the window opens gets
+    latency 0 ("already asleep"), which is distinct from the all-zeros returned
+    when there is no qualifying bout at all."""
+    qualifying = bouts_in_window(runs, win_lo, win_hi, mode)
     if not qualifying:
         return 0.0, 0.0, 0.0, 0.0, 0.0
     lengths = [e - s + 1 for s, e in qualifying]
-    latency = qualifying[0][0] - win_lo + 1
-    return float(len(lengths)), float(np.mean(lengths)), float(np.median(lengths)), float(max(lengths)), float(latency)
+    already_running = mode == "overlap" and any(s < win_lo <= e for s, e in runs)
+    latency = 0.0 if already_running else float(qualifying[0][0] - win_lo + 1)
+    return float(len(lengths)), float(np.mean(lengths)), float(np.median(lengths)), float(max(lengths)), latency
 
 
 def _ws(wb, name):
@@ -1388,6 +1513,17 @@ def step2_build_graphpad_export(state):
     # extra sheets if you actually asked for those metrics.
     want_prob_profiles = any(n in selected_metrics for n in ("P(Wake)", "P(Doze)"))
 
+    bout_answer = ask_choice(
+        "Bout metrics: count only bouts that START inside the ZT window, or every bout "
+        "that OVERLAPS it? 'Start' stops a bout spanning midnight being counted twice "
+        "and is the right choice for whole days. 'Overlap' is usually what you want for "
+        "a short window, where many flies are already mid-bout when it opens and would "
+        "otherwise be reported as having no bouts at all.",
+        ["Bouts starting in the window", "Bouts overlapping the window"], 0,
+        label="Bout counting mode",
+    )
+    bout_mode = "start" if bout_answer.startswith("Bouts starting") else "overlap"
+
     if xl2read_path.suffix.lower() == ".txt":
         raw_rows = read_mat2read_txt(xl2read_path)
     else:
@@ -1414,6 +1550,8 @@ def step2_build_graphpad_export(state):
     # Non-standard sleep definitions get their own filenames, so a 3-min run can't
     # silently overwrite the 5-min results you are comparing it against.
     sleep_def_tag = "" if sleep_def_min == DEFAULT_SLEEP_DEF_MIN else f"_sleepdef{sleep_def_min}min"
+    if bout_mode != "start":
+        sleep_def_tag += "_overlapbouts"
 
     all_outputs = []
     for zt_lo, zt_hi in zt_windows:
@@ -1459,7 +1597,18 @@ def step2_build_graphpad_export(state):
 
                 total_sleep = np.nansum(sleep_binary, axis=1)
                 total_activity_counts = np.nansum(activity, axis=1)
-                total_activity_rate = total_activity_counts / mins_awake
+                # 0 counts over 0 waking minutes is 0/0. Historically that NaN was
+                # the dead-fly signal: over a whole day, "never moved" means dead.
+                # Over a short window it just means the fly slept through it, and
+                # Step 3 was deleting healthy flies for it. Blank is now reserved
+                # for a fly that never moved for the WHOLE day, so full-day runs
+                # behave exactly as before and short windows stop false-positiving.
+                mins_awake_full_day = gathered["mins_awake_full_day"]
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    total_activity_rate = np.divide(
+                        total_activity_counts, mins_awake,
+                        out=np.full(n_flies, np.nan), where=mins_awake > 0)
+                total_activity_rate[(mins_awake == 0) & (mins_awake_full_day > 0)] = 0.0
                 percent_rest = total_sleep / window_len * 100
                 percent_active = mins_awake / window_len * 100
 
@@ -1478,11 +1627,11 @@ def step2_build_graphpad_export(state):
                 for xi in range(n_flies):
                     p_wake[xi], p_doze[xi] = transition_probabilities(activity1_zt[xi])
                     num_sleep[xi], mean_sleep[xi], median_sleep[xi], longest_sleep[xi], latency[xi] = \
-                        summarize_windowed_bouts(sleep_runs[xi], win_lo, win_hi)
+                        summarize_windowed_bouts(sleep_runs[xi], win_lo, win_hi, bout_mode)
                     num_active[xi], mean_active[xi], median_active[xi], _longest_active, _latency_active = \
-                        summarize_windowed_bouts(active_runs[xi], win_lo, win_hi)
+                        summarize_windowed_bouts(active_runs[xi], win_lo, win_hi, bout_mode)
 
-                    qualifying_active = bouts_starting_in_window(active_runs[xi], win_lo, win_hi)
+                    qualifying_active = bouts_in_window(active_runs[xi], win_lo, win_hi, bout_mode)
                     if qualifying_active:
                         totals = [np.nansum(activity1_zt[xi, s - win_lo:e - win_lo + 1]) for s, e in qualifying_active]
                         mean_counts_bout[xi] = float(np.mean(totals))

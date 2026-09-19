@@ -187,6 +187,15 @@ into sleep/wake per 30-minute window.
 - `<name>_channelList.pdf` — one page per fly, showing its activity and sleep
   trace for every day recorded. Good for spot-checking that a fly's data
   looks reasonable (or catching a dead/stuck channel).
+- `<name>_channelList_raster_sleep.png` and `..._raster_activity.png` — **one
+  row per fly, one pixel per minute**, all recording days end to end, grouped by
+  genotype. The fastest way to spot a stuck channel, a fly that died mid-run, or
+  a whole monitor behaving oddly — things per-fly pages and 30-min bins both
+  hide. A strip above marks lights on (yellow) and off (navy); minutes of
+  **missing data are drawn in pink** rather than silently as zero; flies excluded
+  for behavioural death get a red mark in the left margin. The activity colour
+  scale is clipped at the 99th percentile so one frantic minute can't flatten
+  everything else.
 
 Run this once per experiment folder.
 
@@ -207,6 +216,10 @@ first sleep, etc.) for each day.
   - `0-3` if you only care about, say, the first 3 hours
   - You can comma-separate as many ranges as you want; each produces its own
     output file.
+- **How to count bouts** — whether a bout must *start* inside your ZT window to
+  count, or whether any bout *overlapping* it counts. Press Enter for "start",
+  which is right for whole days; see **Short ZT windows** below before analysing
+  anything short.
 - **Which metrics you want** — it lists all 17 available metrics, numbered.
   Press Enter (or type `all`) for everything, or pick a subset by number
   (`1 4 8`, `1-5, 16-17`) or by name (`Sleep (mins), P(Wake)`). Each metric
@@ -218,6 +231,28 @@ first sleep, etc.) for each day.
 `..._24hrs_multiColumnByFly.xlsx` (full day) or `..._ZT0to3_multiColumn.xlsx`
 (a partial range), with one sheet per metric you selected plus a
 30-min-resolution sleep trace per recording day.
+
+#### Short ZT windows (2–6 hours)
+
+Two things behave differently when the window is much shorter than a day, and
+both are now handled:
+
+- **Bout counting.** In the default `start` mode a fly already asleep when the
+  window opens contributes no bout at all. Over a 2 h window that affected a
+  third of fly-days in our test data, every one reported as "0 bouts, 0 latency".
+  **Overlap** mode counts bouts in progress, clipped to the window, and gives a
+  fly already mid-bout a latency of 0 ("already asleep") — distinct from the
+  all-zeros of a fly that never slept. After the change `Num sleep bouts = 0`
+  means the same thing as `Sleep (mins) = 0`, which is what you'd expect.
+  Overlap-mode files are named `..._overlapbouts_...` so they can't overwrite
+  start-mode ones.
+- **Dead-fly detection.** Step 3 treats a blank in `Activity Counts Per min` as
+  "this fly has no data". That blank came from 0 counts ÷ 0 waking minutes —
+  over a whole day a fly that never moved is dead, so this worked. Over a short
+  window it merely means the fly slept through it, and healthy flies were being
+  deleted from *every* sheet and day. A blank is now reserved for a fly that
+  never moved for the **whole day**; one that just slept through your window
+  gets a rate of 0 and is kept. Full-day runs are unaffected.
 
 #### The 17 metrics
 
