@@ -75,7 +75,7 @@ except Exception:
 # =============================================================================
 # Bump __version__ whenever a new version is tagged in the repository; the check
 # below compares this number against the newest tag/release on GitHub.
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 REPO_URL = "https://github.com/CamiloGuevaraEsp/sleep_analysis"
 REPO_API = "https://api.github.com/repos/CamiloGuevaraEsp/sleep_analysis"
 UPDATE_CHECK_TIMEOUT_S = 2
@@ -100,9 +100,21 @@ def fetch_latest_version():
     import urllib.error
     import urllib.request
 
+    def newest_tag(payload):
+        """Highest version number among the tags, rather than whichever GitHub
+        happens to list first. The /tags endpoint's ordering is not documented as
+        newest-first, and a hotfix tagged onto an older commit could otherwise
+        make the check compare against the wrong version and go quiet."""
+        best = None
+        for tag in payload or []:
+            version = parse_version(tag.get("name"))
+            if version and (best is None or version > best[0]):
+                best = (version, tag.get("name"))
+        return (best[1], f"{REPO_URL}/tags") if best else (None, None)
+
     attempts = (
         ("/releases/latest", lambda d: (d.get("tag_name"), d.get("html_url"))),
-        ("/tags", lambda d: (d[0]["name"], f"{REPO_URL}/tags") if d else (None, None)),
+        ("/tags", newest_tag),
     )
     for endpoint, extract in attempts:
         try:
