@@ -1,0 +1,9 @@
+# macOS Finder metadata
+.DS_Store
+
+# Python build artifacts
+__pycache__/
+*.py[cod]
+
+# Excel lock files left behind by an open workbook
+~$*.xlsx
