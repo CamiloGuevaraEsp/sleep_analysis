@@ -472,6 +472,15 @@ so for 7 days it's one minute *before* the same clock time on the last day.
 
 ---
 
+**`IndexError: list index out of range` while reading Raw Data**
+
+Your Raw Data folder is on an external drive, USB stick or network share, and
+macOS has written hidden `._` sidecar files next to each data file. Fixed in
+v1.2.1 — update to that version or newer. (You won't see these files in Finder
+or `ls`; they start with a dot, so they're hidden.)
+
+---
+
 **`Permission denied` when it writes the run log, or a file won't save**
 
 You have that Excel file open. Close it in Excel and run again.

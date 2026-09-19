@@ -75,7 +75,7 @@ except Exception:
 # =============================================================================
 # Bump __version__ whenever a new version is tagged in the repository; the check
 # below compares this number against the newest tag/release on GitHub.
-__version__ = "1.2"
+__version__ = "1.2.1"
 REPO_URL = "https://github.com/CamiloGuevaraEsp/sleep_analysis"
 REPO_API = "https://api.github.com/repos/CamiloGuevaraEsp/sleep_analysis"
 UPDATE_CHECK_TIMEOUT_S = 2
@@ -707,7 +707,12 @@ def process_channel(raw_dir, channel_num, monitor_num=None):
         pattern = f"*M{int(monitor_num):03d}C{int(channel_num):02d}.txt"
     else:
         pattern = f"*C{int(channel_num):02d}.txt"
-    matches = sorted(Path(raw_dir).glob(pattern))
+    # macOS writes an AppleDouble sidecar ("._name.txt") next to each file on
+    # exFAT/FAT/network volumes -- external SSDs especially. ls hides them because
+    # they start with a dot, but pathlib.glob matches them, so without this filter
+    # every channel appears to have two files and the 4 KB binary sidecar gets
+    # parsed as DAM data.
+    matches = sorted(p for p in Path(raw_dir).glob(pattern) if not p.name.startswith("._"))
 
     if len(matches) > 1:
         dated_days = [parse_channel_file_multi_file_per_day(p) for p in matches]
