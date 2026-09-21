@@ -1,0 +1,5 @@
+run_id,timestamp,step,parameter,value,source
+2026-09-21_09-23-29,2026-09-21T09:23:29,start,Pipeline version,1.2.2,derived
+2026-09-21_09-23-29,2026-09-21T09:23:29,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-09-21_09-23-29,2026-09-21T09:23:31,start,Steps to run (as typed),0 1 2 3 4,answered
+2026-09-21_09-23-29,2026-09-21T09:23:31,start,Steps to run (resolved),0 1 2 3 4,derived

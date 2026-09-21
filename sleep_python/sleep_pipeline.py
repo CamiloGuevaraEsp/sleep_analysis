@@ -155,20 +155,29 @@ def read_binned_sheet(ws):
 # ---------------------------------------------------------------------------
 
 def detect_groups_and_sex(genotypes):
+    """Also returns geno_by_base_sex, an exact (base, sex) -> genotype lookup.
+
+    Callers used to re-derive this with `g.startswith(base)`, which silently
+    breaks when one base name is a prefix of another -- "X_csch" matching
+    "X_csch_pex16_male" -- so one group was plotted twice under two labels and
+    another never appeared at all. Recording the mapping at the point where the
+    name is actually split makes that class of bug impossible."""
     order = list(dict.fromkeys(genotypes))  # first-appearance order, de-duplicated
     has_sex = all(re.search(r'_(male|female)$', g, re.IGNORECASE) for g in order)
     base_order = None
     sex_of = {}
+    geno_by_base_sex = {}
     if has_sex:
         bases = []
         for g in order:
             m = re.search(r'^(.*)_(male|female)$', g, re.IGNORECASE)
             base, sex = m.group(1), m.group(2).lower()
             sex_of[g] = sex
+            geno_by_base_sex[(base.lower(), sex)] = g
             if base not in bases:
                 bases.append(base)
         base_order = bases
-    return order, has_sex, sex_of, base_order
+    return order, has_sex, sex_of, base_order, geno_by_base_sex
 
 
 def build_dataset(path):
@@ -236,7 +245,7 @@ def build_dataset(path):
         break
     if ref_genos is None and profile is not None:
         ref_genos = profile['genos']
-    group_order, has_sex, sex_of, base_order = detect_groups_and_sex(ref_genos)
+    group_order, has_sex, sex_of, base_order, geno_by_base_sex = detect_groups_and_sex(ref_genos)
 
     return {
         'metrics': metrics,
@@ -246,6 +255,7 @@ def build_dataset(path):
         'has_sex': has_sex,
         'sex_of': sex_of,
         'base_order': base_order,
+        'geno_by_base_sex': geno_by_base_sex,
     }
 
 
@@ -336,7 +346,8 @@ def plot_profile_combined(timepoints, values_by_group, group_order, colors, out_
     return fname
 
 
-def plot_profile_by_sex(timepoints, values_by_group, sex_of, base_order, colors, out_dir):
+def plot_profile_by_sex(timepoints, values_by_group, sex_of, base_order, colors, out_dir,
+                        geno_by_base_sex):
     fnames = []
     for sex in ['male', 'female']:
         genos_this_sex = [g for g, s in sex_of.items() if s == sex]
@@ -344,7 +355,7 @@ def plot_profile_by_sex(timepoints, values_by_group, sex_of, base_order, colors,
             continue
         fig, ax = plt.subplots(figsize=(8, 5.2))
         for base in base_order:
-            geno = next((g for g in genos_this_sex if g.lower().startswith(base.lower())), None)
+            geno = geno_by_base_sex.get((base.lower(), sex))
             if geno is None:
                 continue
             mat = values_by_group[geno]
@@ -398,7 +409,8 @@ def plot_profile_continuous(timepoints, values_by_group, group_order, colors, da
     return fname
 
 
-def plot_profile_continuous_by_sex(timepoints, values_by_group, sex_of, base_order, colors, day_span, n_days, out_dir):
+def plot_profile_continuous_by_sex(timepoints, values_by_group, sex_of, base_order, colors, day_span, n_days, out_dir,
+                                   geno_by_base_sex):
     fnames = []
     for sex in ['male', 'female']:
         genos_this_sex = [g for g, s in sex_of.items() if s == sex]
@@ -407,7 +419,7 @@ def plot_profile_continuous_by_sex(timepoints, values_by_group, sex_of, base_ord
         fig, ax = plt.subplots(figsize=(max(8, 3 * n_days), 5.2))
         _shade_nights(ax, n_days, day_span)
         for base in base_order:
-            geno = next((g for g in genos_this_sex if g.lower().startswith(base.lower())), None)
+            geno = geno_by_base_sex.get((base.lower(), sex))
             if geno is None:
                 continue
             mat = values_by_group[geno]
@@ -741,6 +753,7 @@ def run(path):
         os.makedirs(by_sex_dir, exist_ok=True)
         base_order = dataset['base_order']
         sex_of = dataset['sex_of']
+        geno_by_base_sex = dataset['geno_by_base_sex']
         base_colors = {b: PALETTE[i % len(PALETTE)] for i, b in enumerate(base_order)}
 
         for metric_name, m in dataset['metrics'].items():
@@ -750,7 +763,7 @@ def run(path):
             for sex in ['male', 'female']:
                 values_by_base = {}
                 for base in base_order:
-                    geno = next((g for g in group_order if sex_of.get(g) == sex and g.lower().startswith(base.lower())), None)
+                    geno = geno_by_base_sex.get((base.lower(), sex))
                     if geno is None:
                         continue
                     values_by_base[base] = values_by_group[geno]
@@ -761,7 +774,8 @@ def run(path):
         if dataset['profile'] is not None:
             prof = dataset['profile']
             values_by_group = by_group(prof['genos'], prof['values'], group_order)
-            fnames = plot_profile_by_sex(prof['timepoints'], values_by_group, sex_of, base_order, base_colors, by_sex_dir)
+            fnames = plot_profile_by_sex(prof['timepoints'], values_by_group, sex_of, base_order, base_colors,
+                                         by_sex_dir, geno_by_base_sex)
             for fname in fnames:
                 print("  Saved", fname)
 
@@ -769,7 +783,8 @@ def run(path):
             if n_days > 1:
                 values_by_group_cont = by_group(prof['genos'], prof['continuous_values'], group_order)
                 fnames = plot_profile_continuous_by_sex(prof['continuous_timepoints'], values_by_group_cont, sex_of,
-                                                         base_order, base_colors, prof['day_span'], n_days, by_sex_dir)
+                                                         base_order, base_colors, prof['day_span'], n_days, by_sex_dir,
+                                                         geno_by_base_sex)
                 for fname in fnames:
                     print("  Saved", fname)
 
