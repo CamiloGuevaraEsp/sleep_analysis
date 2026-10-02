@@ -75,7 +75,7 @@ except Exception:
 # =============================================================================
 # Bump __version__ whenever a new version is tagged in the repository; the check
 # below compares this number against the newest tag/release on GitHub.
-__version__ = "1.3"
+__version__ = "1.5"
 REPO_URL = "https://github.com/CamiloGuevaraEsp/sleep_analysis"
 REPO_API = "https://api.github.com/repos/CamiloGuevaraEsp/sleep_analysis"
 UPDATE_CHECK_TIMEOUT_S = 2
@@ -861,37 +861,54 @@ def binned_transition_probabilities(counts_1min, bin_minutes=BIN_MINUTES):
 
 
 def detect_behavioral_death(continuous_counts, window_min=1440, prop_immobile=0.01, step_min=60):
-    """Behavioral (movement-based) death detection, matching the logic of rethomics/
-    sleepr's curate_dead_animals(): scan FORWARD through the fly's whole 1-min activity
-    time series (all days concatenated) looking for the first window of `window_min`
-    consecutive minutes where the fraction of "moving" minutes (count > 0) is below
-    `prop_immobile`. A new window is checked every `step_min` minutes (rethomics calls
-    this "resolution"; e.g. a 1440-min window checked every 60 min matches rethomics'
-    default of resolution=24, i.e. window_min/24).
+    """Estimate when a fly died, from its 1-min activity over the whole recording.
 
-    NaN minutes (missing/malformed data) inside a window are excluded from the moving
-    fraction rather than counted as immobile, so a data gap alone can't masquerade as
-    death here -- that's the separate, existing gap-based check.
+    A fly counts as dead from minute t when, from t onward, the fraction of
+    "moving" minutes (count > 0) never rises back to `prop_immobile` in any
+    window of `window_min` minutes, checked every `step_min` minutes. Returns the
+    0-based minute where that terminal silence begins, or None.
 
-    Returns the 0-based minute index where the first qualifying window STARTS (i.e. the
-    estimated onset of sustained immobility), or None if no such window is found. Only
-    windows with a full window_min of *future* data available are checked, same as
-    rethomics scanning "the right (future) data" -- so a fly can't be flagged as dead
-    in its last window_min-1 minutes just because there isn't enough data left to check.
+    The "from t onward" part is the whole point. Taking the FIRST window below
+    threshold -- which is what rethomics/sleepr does, because it then truncates
+    the data there rather than discarding the animal -- misreads any manipulation
+    that causes reversible quiescence: a fly knocked down on day 2 and moving
+    again on day 5 was never dead, but gets its entire recording thrown away.
+    Requiring the silence to persist to the end of the recording distinguishes the
+    two without any extra threshold to tune, because death does not reverse.
+
+    NaN minutes (missing data) are excluded from each window's fraction rather
+    than counted as immobile, so a data gap alone cannot look like death -- that
+    is the separate, gap-based check in Step 3.
+
+    The onset must still have a full `window_min` of data after it, so a fly is
+    never declared dead inside the final window_min minutes: there, "died" and
+    "we stopped recording" are genuinely indistinguishable.
     """
     n = len(continuous_counts)
     if n < window_min:
         return None
     moving = continuous_counts > 0
     valid = ~np.isnan(continuous_counts)
-    for start in range(0, n - window_min + 1, step_min):
-        window_valid = valid[start:start + window_min]
-        if not window_valid.any():
-            continue
-        frac_moving = moving[start:start + window_min][window_valid].mean()
-        if frac_moving < prop_immobile:
-            return start
-    return None
+
+    # Windowed moving-fraction at every step. Windows near the end are shorter
+    # than window_min, which is what makes a late recovery disqualify death.
+    starts = list(range(0, n, step_min))
+    fracs = []
+    for s in starts:
+        window_valid = valid[s:s + window_min]
+        fracs.append(moving[s:s + window_min][window_valid].mean() if window_valid.any() else None)
+
+    # Walk back from the end of the recording to find where the terminal silence
+    # starts. Stopping at the first window that recovers is what rules out a fly
+    # that was quiescent and then came back.
+    onset = None
+    for s, frac in zip(reversed(starts), reversed(fracs)):
+        if frac is not None and frac >= prop_immobile:
+            break
+        onset = s
+    if onset is None or onset > n - window_min:
+        return None
+    return onset
 
 
 def read_channel_list_txt(path):

@@ -201,6 +201,17 @@ It asks for:
 
 **5 minutes** is the field standard for DAM data and is what you should use unless you have a reason not to. It is a convention rather than a measurement, so the script asks instead of hard-coding it: lowering it to `3` scores more (and shorter) stretches as sleep, raising it to `10` scores fewer. Any value other than 5 is stamped into the Step 2 filenames (for example `..._24hrs_sleepdef3min_multiColumnByFly.xlsx`) so that a test run cannot overwrite the standard results you are comparing it against.
 
+#### How "dead" is decided
+
+A fly counts as dead from the first minute after which its movement **never recovers** for the rest of the recording — no window of the chosen length ever rises back above the threshold.
+
+The "never recovers" condition makes this safe for manipulations that cause **reversible** quiescence. Taking the first quiet window instead (as rethomics/sleepr does, because it truncates the data there rather than discarding the animal) misreads those: a fly knocked down on day 2 and moving normally again on day 5 was never dead, but would have its whole recording discarded. Those are usually the flies showing the phenotype, so the loss biases the affected groups rather than merely reducing sample size.
+
+Two consequences:
+
+* A fly is **never** declared dead inside the final window-length of the recording, because there "died" and "we stopped recording" cannot be distinguished. Check the rasters for a solid block at the right-hand edge.
+* The reported onset is approximate, to about one scan step (1 hour by default).
+
 It produces:
 
 ```text

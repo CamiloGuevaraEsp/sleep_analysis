@@ -180,6 +180,34 @@ into sleep/wake per 30-minute window.
   Anything other than 5 gets stamped into the Step 2 filenames (e.g.
   `..._24hrs_sleepdef3min_multiColumnByFly.xlsx`) so a test run can't quietly
   overwrite the standard results you're comparing it against.
+- **Whether to detect behavioural death**, and if so the **window** (default 24
+  hours) and the **maximum percent of it the fly can be moving** and still count
+  as dead (default 1). Press Enter for all three unless you have a reason not to.
+
+#### How "dead" is decided
+
+A fly counts as dead from the first minute after which its movement **never
+recovers** for the rest of the recording — no window of the chosen length ever
+rises back above the threshold.
+
+The "never recovers" part is what makes this safe for manipulations that cause
+**reversible** quiescence. Taking the first quiet window instead (what
+rethomics/sleepr does, because it truncates the data there rather than
+discarding the animal) misreads those: a fly knocked down on day 2 and moving
+normally again on day 5 was never dead, but would have its entire recording
+thrown away. And since those are usually the flies showing the phenotype, the
+loss falls hardest on the groups you care about, which biases the comparison
+rather than just costing sample size.
+
+Two consequences:
+
+- **A fly is never declared dead inside the final window-length** of the
+  recording, because there "died" and "we stopped recording" are
+  indistinguishable. A fly that genuinely dies in the last 24 h is therefore
+  *not* flagged — check the rasters for a solid block at the right-hand edge.
+- **The reported onset is approximate**, to about one scan step (1 hour by
+  default). The movement threshold absorbs a few stray minutes near the
+  boundary, so treat the timestamp as indicative rather than exact.
 
 **It produces**, next to your channelList file:
 - `<name>_channelList.pkl` — the binned data, used by Step 2. You won't open

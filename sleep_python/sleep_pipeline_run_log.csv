@@ -1,0 +1,12 @@
+run_id,timestamp,step,parameter,value,source
+2026-09-28_10-14-21,2026-09-28T10:14:21,start,Pipeline version,1.3,derived
+2026-09-28_10-14-21,2026-09-28T10:14:21,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-09-28_10-14-21,2026-09-28T10:14:23,start,Steps to run (as typed),0 1 2 3 4,answered
+2026-09-28_10-14-21,2026-09-28T10:14:23,start,Steps to run (resolved),0 1 2 3 4,derived
+2026-09-28_10-14-21,2026-09-28T10:15:11,0 - import raw monitor data,Raw Monitor*.txt dump folder,/Volumes/VNC/Monitor Data/VNC_project/AN_and_ppk/20260928_monitors,answered
+2026-09-28_10-14-21,2026-09-28T10:15:25,0 - import raw monitor data,Destination experiment folder,/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20260928,answered
+2026-09-28_10-14-21,2026-09-28T10:15:25,0 - import raw monitor data,Channel-groups manifest,/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20260928/20260928_channelGroups.txt,auto-detected
+2026-09-28_10-16-14,2026-09-28T10:16:14,start,Pipeline version,1.3,derived
+2026-09-28_10-16-14,2026-09-28T10:16:14,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-09-28_10-16-14,2026-09-28T10:16:15,start,Steps to run (as typed),0 1 2 3 4,answered
+2026-09-28_10-16-14,2026-09-28T10:16:15,start,Steps to run (resolved),0 1 2 3 4,derived
