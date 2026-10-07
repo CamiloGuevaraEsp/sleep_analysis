@@ -10,3 +10,11 @@ run_id,timestamp,step,parameter,value,source
 2026-09-28_10-16-14,2026-09-28T10:16:14,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
 2026-09-28_10-16-14,2026-09-28T10:16:15,start,Steps to run (as typed),0 1 2 3 4,answered
 2026-09-28_10-16-14,2026-09-28T10:16:15,start,Steps to run (resolved),0 1 2 3 4,derived
+2026-10-06_14-49-47,2026-10-06T14:49:47,start,Pipeline version,1.5,derived
+2026-10-06_14-49-47,2026-10-06T14:49:47,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-10-06_14-49-47,2026-10-06T14:49:58,start,Steps to run (as typed),1 2 3 4,answered
+2026-10-06_14-49-47,2026-10-06T14:49:58,start,Steps to run (resolved),1 2 3 4,derived
+2026-10-07_10-49-23,2026-10-07T10:49:23,start,Pipeline version,1.5,derived
+2026-10-07_10-49-23,2026-10-07T10:49:23,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-10-07_10-49-23,2026-10-07T10:49:26,start,Steps to run (as typed),0 1 2 3 4,answered
+2026-10-07_10-49-23,2026-10-07T10:49:26,start,Steps to run (resolved),0 1 2 3 4,derived

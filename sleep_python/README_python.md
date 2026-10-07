@@ -494,6 +494,10 @@ Three things worth knowing:
 
 ## Tips
 
+- **Cancel means cancel.** Hitting Cancel on any prompt (or Ctrl-C / Ctrl-D in
+  the terminal) stops the run there and then; it never falls through to a
+  default. Pressing OK with the box left *empty* is what accepts the default.
+  The run log still records how far the run got.
 - You can run steps individually later (e.g. just `4` to re-make plots after
   editing colors, without re-processing raw data).
 - If a step can't find a file it expects, it'll ask you to pick one instead —

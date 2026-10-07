@@ -75,7 +75,7 @@ except Exception:
 # =============================================================================
 # Bump __version__ whenever a new version is tagged in the repository; the check
 # below compares this number against the newest tag/release on GitHub.
-__version__ = "1.5"
+__version__ = "1.5.1"
 REPO_URL = "https://github.com/CamiloGuevaraEsp/sleep_analysis"
 REPO_API = "https://api.github.com/repos/CamiloGuevaraEsp/sleep_analysis"
 UPDATE_CHECK_TIMEOUT_S = 2
@@ -228,6 +228,40 @@ def write_run_log(dest_folder):
 # =============================================================================
 # Prompt helpers (dialogs when a display is available, terminal otherwise)
 # =============================================================================
+class Cancelled(SystemExit):
+    """Raised when the user cancels a prompt, so the run stops instead of
+    silently continuing with defaults."""
+
+    def __init__(self):
+        super().__init__("Cancelled -- nothing further was run.")
+
+
+def ask_string(prompt_text, initialvalue=None, terminal_suffix=""):
+    """Ask for free text, and treat cancelling as cancelling.
+
+    tkinter's askstring returns None when the user clicks Cancel and "" when they
+    clear the box and click OK. Conflating the two is a trap: every prompt here
+    falls back to a default on empty input, so a cancelled dialog used to be read
+    as "accept the default" and the pipeline would quietly run the rest of the
+    analysis. Returning None only for a real cancel keeps that distinction.
+
+    In the terminal, Ctrl-D (EOF) and Ctrl-C are the equivalent gestures and get
+    the same treatment, rather than an uncaught traceback.
+
+    Returns the text, or raises Cancelled. An empty string means "I pressed OK
+    with nothing typed", which callers are free to read as the default."""
+    if HAS_GUI:
+        answer = simpledialog.askstring("Input", prompt_text, initialvalue=initialvalue)
+        if answer is None:
+            raise Cancelled()
+        return answer
+    try:
+        return input(terminal_suffix or f"{prompt_text}: ")
+    except (EOFError, KeyboardInterrupt):
+        print()
+        raise Cancelled()
+
+
 def ask_folder(prompt_text, default_path=None, create_if_missing=False, label=None):
     default_path = str(default_path) if default_path else str(Path.cwd())
     if HAS_GUI:
@@ -279,18 +313,19 @@ def ask_number(prompt_text, default_val, label=None):
 
 def ask_choice(prompt_text, options, default_idx=0, label=None):
     if HAS_GUI:
-        txt = simpledialog.askstring(
-            "Input",
+        txt = ask_string(
             f"{prompt_text}\nOptions: " + ", ".join(f"{i+1}={o}" for i, o in enumerate(options)),
             initialvalue=str(default_idx + 1),
         )
-        idx = int(txt) - 1 if txt and txt.strip() else default_idx
     else:
         print(prompt_text)
         for i, o in enumerate(options):
             print(f"  {i+1}) {o}")
-        txt = input(f"Choice [{default_idx+1}]: ").strip()
-        idx = int(txt) - 1 if txt else default_idx
+        txt = ask_string(prompt_text, terminal_suffix=f"Choice [{default_idx+1}]: ")
+    txt = txt.strip()
+    idx = int(txt) - 1 if txt else default_idx
+    if not (0 <= idx < len(options)):
+        raise SystemExit(f"Choice must be between 1 and {len(options)} (got {txt!r}).")
     record(label or prompt_text, options[idx])
     return options[idx]
 
@@ -332,12 +367,12 @@ def parse_selection(txt, options):
 def ask_multi_choice(prompt_text, options, default="all", label=None):
     numbered = "\n".join(f"  {i+1}) {o}" for i, o in enumerate(options))
     if HAS_GUI:
-        txt = simpledialog.askstring("Input", f"{prompt_text}\n{numbered}", initialvalue=default)
+        txt = ask_string(f"{prompt_text}\n{numbered}", initialvalue=default)
     else:
         print(prompt_text)
         print(numbered)
-        txt = input(f"Selection [{default}]: ").strip()
-    txt = txt if (txt and txt.strip()) else default
+        txt = ask_string(prompt_text, terminal_suffix=f"Selection [{default}]: ")
+    txt = txt.strip() or default
     selected = parse_selection(txt, options)
     if not selected:
         raise SystemExit("Nothing selected -- pick at least one option.")
@@ -363,11 +398,11 @@ def ask_zt_windows(default="0-24"):
         "to get one output file per range."
     )
     if HAS_GUI:
-        txt = simpledialog.askstring("Input", prompt_text, initialvalue=default)
+        txt = ask_string(prompt_text, initialvalue=default)
     else:
         print(prompt_text)
-        txt = input(f"ZT range(s) [{default}]: ").strip()
-    txt = (txt or default).strip()
+        txt = ask_string(prompt_text, terminal_suffix=f"ZT range(s) [{default}]: ")
+    txt = txt.strip() or default
 
     windows = []
     for part in txt.split(","):
@@ -395,12 +430,8 @@ def ask_datetime_range():
     prompt_start = "Start date & time of the range to analyze, e.g. '2026-07-28 10:10:00'"
     prompt_end = ("End date & time of the range to analyze -- the LAST minute you want included "
                   "(same convention as DAMFileScan), e.g. '2026-07-30 10:09:00'")
-    if HAS_GUI:
-        start_txt = simpledialog.askstring("Input", prompt_start)
-        end_txt = simpledialog.askstring("Input", prompt_end)
-    else:
-        start_txt = input(f"{prompt_start}: ").strip()
-        end_txt = input(f"{prompt_end}: ").strip()
+    start_txt = ask_string(prompt_start).strip()
+    end_txt = ask_string(prompt_end).strip()
 
     try:
         start_dt = dateparser.parse(start_txt)
@@ -1888,17 +1919,17 @@ def prompt_steps():
     ]
     default = "0 1 2 3 4"
     if HAS_GUI:
-        txt = simpledialog.askstring(
-            "Input",
+        txt = ask_string(
             "Which step(s) do you want to run? Press OK to run all of them, "
             "including Step 0.\n" + "\n".join(labels),
             initialvalue=default,
         )
     else:
         print("\n".join(labels))
-        txt = input(f'Enter step numbers to run [{default}]: ').strip()
-    steps = {0, 1, 2, 3, 4} if (not txt or not txt.strip()) else {int(x) for x in re.findall(r"\d+", txt)}
-    record("Steps to run (as typed)", txt.strip() if (txt and txt.strip()) else f"(blank -> {default})")
+        txt = ask_string("Steps", terminal_suffix=f'Enter step numbers to run [{default}]: ')
+    txt = txt.strip()
+    steps = {0, 1, 2, 3, 4} if not txt else {int(x) for x in re.findall(r"\d+", txt)}
+    record("Steps to run (as typed)", txt or f"(blank -> {default})")
     record("Steps to run (resolved)", " ".join(str(s) for s in sorted(steps)), "derived")
     return steps
 
