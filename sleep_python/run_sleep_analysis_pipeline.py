@@ -75,7 +75,7 @@ except Exception:
 # =============================================================================
 # Bump __version__ whenever a new version is tagged in the repository; the check
 # below compares this number against the newest tag/release on GitHub.
-__version__ = "1.5.1"
+__version__ = "1.6"
 REPO_URL = "https://github.com/CamiloGuevaraEsp/sleep_analysis"
 REPO_API = "https://api.github.com/repos/CamiloGuevaraEsp/sleep_analysis"
 UPDATE_CHECK_TIMEOUT_S = 2
@@ -468,9 +468,15 @@ def ask_datetime_range():
 def parse_monitor_dump(path):
     """Parse a raw multi-channel TriKinetics Monitor*.txt dump. Each line is one
     minute of ALL channels for one measurement type: col2=date, col3=time,
-    col8=type (CT/MT/Pn), col11 onward = one activity count per channel.
-    Returns dict: measurement_type -> {datetime: np.ndarray of per-channel counts}."""
+    col8=type (CT/MT/Pn), col10=lights (1 on / 0 off), col11 onward = one activity
+    count per channel.
+
+    Returns (counts_by_type, lights_by_type): both map measurement_type ->
+    {datetime: value}, the first to the per-channel count array, the second to the
+    lights flag. The lights flag is what lets ZT0 be detected from the monitor's
+    own record instead of being assumed to equal the start of the recording."""
     by_type = {}
+    lights_by_type = {}
     with open(path, "r", errors="replace") as f:
         for line in f:
             fields = line.rstrip("\n").split("\t")
@@ -488,7 +494,46 @@ def parse_monitor_dump(path):
             except ValueError:
                 continue
             by_type.setdefault(mtype, {})[dt] = counts
-    return by_type
+            flag = fields[9].strip()
+            lights_by_type.setdefault(mtype, {})[dt] = int(flag) if flag in ("0", "1") else None
+    return by_type, lights_by_type
+
+
+def detect_zt0_time(lights_by_monitor, mtype, start_dt, end_dt):
+    """Clock time of ZT0, inferred from the monitors' own lights flag.
+
+    A lights-on event is a 0 -> 1 step in the lights column. The row carrying the
+    1 is the minute DURING which the lights came on, and a DAM timestamp marks the
+    END of its one-minute bin, so the first whole minute of light -- ZT0 -- is one
+    minute after that row.
+
+    Votes are pooled across monitors and days inside [start_dt, end_dt), and the
+    clock time appearing on the most monitor-days wins. That matters because the
+    light flag also trips when someone opens the incubator: those artifacts land
+    on a single day at an odd time, while the real schedule repeats every day, so
+    counting days outvotes them. Restricting to the analysed range means a light
+    schedule that changed earlier in a long monitor file cannot interfere.
+
+    Returns (time, votes, total_votes, alternatives) or None if no lights-on event
+    is recorded in the range -- e.g. constant darkness, or a flag never wired up.
+    """
+    votes = {}
+    for monitor, by_type in lights_by_monitor.items():
+        series = by_type.get(mtype) or {}
+        in_range = sorted((dt, flag) for dt, flag in series.items() if start_dt <= dt < end_dt)
+        for (_, prev_flag), (dt, flag) in zip(in_range, in_range[1:]):
+            if prev_flag == 0 and flag == 1:
+                zt0 = dt + timedelta(minutes=1)
+                # One vote per monitor-day, so a monitor flickering several times
+                # in one day cannot outvote a day of every other monitor.
+                votes.setdefault(zt0.time(), set()).add((monitor, zt0.date()))
+    if not votes:
+        return None
+    ranked = sorted(votes.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    total = sum(len(v) for v in votes.values())
+    best_time, best_days = ranked[0]
+    alternatives = [(tm, len(days)) for tm, days in ranked[1:]]
+    return best_time, len(best_days), total, alternatives
 
 
 def parse_channel_range(range_str):
@@ -587,20 +632,72 @@ def step0_import_monitor_data(state):
 
     print(f"Loading {len(monitors_needed)} monitor file(s): {monitors_needed}")
     parsed_by_monitor = {}
+    lights_by_monitor = {}
     types_by_monitor = {}
     for mon in monitors_needed:
         mon_path = dump_folder / f"Monitor{mon}.txt"
         if not mon_path.is_file():
             raise SystemExit(f"Could not find {mon_path}")
-        by_type = parse_monitor_dump(mon_path)
+        by_type, lights_by_type = parse_monitor_dump(mon_path)
         if not by_type:
             raise SystemExit(f"No parsable rows found in {mon_path}")
         parsed_by_monitor[mon] = by_type
+        lights_by_monitor[mon] = lights_by_type
         types_by_monitor[mon] = set(by_type.keys())
         print(f"  Monitor {mon}: types found = {sorted(by_type.keys())}")
 
     mtype = choose_measurement_type(types_by_monitor)
     print(f"Using measurement type: {mtype}")
+
+    # Every ZT window downstream is measured from minute 0 of the slice, so the
+    # slice has to begin at lights-on for "ZT6" to mean ZT6. Rather than assume
+    # that, ask the monitors: they record the lights state themselves.
+    detected = detect_zt0_time(lights_by_monitor, mtype, start_dt, end_dt)
+    if detected is None:
+        print("Note: no lights-on transition is recorded in this range, so ZT0 cannot be checked -- "
+              "your start time is being treated as ZT0.")
+        record("ZT0 detection", "no lights-on event in range; start treated as ZT0", "derived")
+    else:
+        zt0_time, votes, total, alternatives = detected
+        aligned = start_dt.replace(hour=zt0_time.hour, minute=zt0_time.minute,
+                                   second=zt0_time.second, microsecond=0)
+        offset_min = int(round((start_dt - aligned).total_seconds() / 60)) % 1440
+        print(f"Lights-on (ZT0) detected at {zt0_time.strftime('%H:%M:%S')} "
+              f"on {votes} of {total} monitor-days in this range.")
+        if alternatives:
+            print("  (other lights-on times seen, outvoted: "
+                  + ", ".join(f"{tm.strftime('%H:%M')} x{n}" for tm, n in alternatives[:4]) + ")")
+        record("ZT0 detected (lights-on)",
+               f"{zt0_time.strftime('%H:%M:%S')} ({votes}/{total} monitor-days)", "derived")
+
+        if offset_min == 0:
+            print("Your start time already matches ZT0 -- no adjustment needed.")
+            record("ZT0 alignment", "start already at ZT0", "derived")
+        else:
+            # Snap to whichever ZT0 is closest, so the shift is never ~a whole day.
+            nearest = min((aligned + timedelta(days=d) for d in (-1, 0, 1)),
+                          key=lambda c: abs((c - start_dt).total_seconds()))
+            shift_min = int(round((nearest - start_dt).total_seconds() / 60))
+            print(f"WARNING: your start time is ZT {offset_min / 60:.2f}, not ZT0 -- every ZT window "
+                  f"below would be shifted by {offset_min} minute(s).")
+            answer = ask_choice(
+                f"Move the start from {start_dt} to {nearest} ({shift_min:+d} min) so that minute 0 "
+                f"is ZT0? Choosing No keeps your start time and leaves ZT labels offset by "
+                f"{offset_min} minute(s).",
+                [f"Yes, start at ZT0 ({nearest})", f"No, keep {start_dt}"], 0,
+                label="Align start to detected ZT0",
+            )
+            if answer.startswith("Yes"):
+                start_dt = nearest
+                end_dt = start_dt + timedelta(minutes=n_days * 1440)
+                # expected_minutes / date_tag are derived from start_dt further down,
+                # after this block, so they pick up the shift without being set here.
+                print(f"Range is now {start_dt} to {end_dt - timedelta(minutes=1)} inclusive.")
+                record("ZT0 alignment", f"start shifted {shift_min:+d} min to {start_dt}", "derived")
+            else:
+                record("ZT0 alignment",
+                       f"declined; start left at ZT {offset_min / 60:.2f} (ZT labels offset by "
+                       f"{offset_min} min)", "answered")
 
     raw_dir = dest_folder / "Raw Data"
     raw_dir.mkdir(exist_ok=True)

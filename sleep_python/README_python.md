@@ -155,6 +155,47 @@ per-channel format Step 1 expects.
 - **Which measurement type to use** (CT/MT/Pn) — only asked if more than one
   is present across the monitor files you need; defaults to `CT`, the
   standard beam-crossing activity count.
+- **Whether to shift the start to the detected ZT0** — only asked if your start
+  time isn't already lights-on. See below.
+
+#### ZT0 is detected, not assumed
+
+Every ZT window downstream is measured from minute 0 of the slice, so `ZT6` only
+means ZT6 if the slice begins at lights-on. Rather than assume that, Step 0 reads
+the **lights column the monitors record themselves** (column 10, `1` = on) and
+finds the lights-on transitions inside your date range.
+
+It then tells you what it found and, if your start time doesn't match, offers to
+move it:
+
+```
+Lights-on (ZT0) detected at 09:04:00 on 4 of 9 monitor-days in this range.
+  (other lights-on times seen, outvoted: 09:16 x1, 09:25 x1, 17:15 x1)
+WARNING: your start time is ZT 22.93, not ZT0 -- every ZT window below would be
+shifted by 1376 minute(s).
+Move the start from 2024-01-29 08:00:00 to 2024-01-29 09:04:00 (+64 min)?
+```
+
+Three details worth knowing:
+
+- **The `+1 minute`.** The row that first reads `1` is the minute *during* which
+  the lights came on, and a DAM timestamp marks the **end** of its one-minute
+  bin. So the first whole minute of light — ZT0 — is one minute after that row.
+  A transition logged at 09:03 means ZT0 = 09:04.
+- **Votes, not one day.** The lights flag also trips when someone opens the
+  incubator. Those artifacts land on a single day at an odd time, while the real
+  schedule repeats daily, so the clock time appearing on the most *monitor-days*
+  wins and the artifacts get outvoted and listed. In real data one monitor
+  produced five spurious transitions over two days and the correct 09:04 still
+  won 3 votes to 1 each.
+- **Only days inside your range vote**, so a light schedule that changed earlier
+  in a long monitor file can't interfere.
+
+If no lights-on transition is recorded in the range (constant darkness, or the
+flag was never wired up) it says so and leaves your start time alone.
+
+This only works through Step 0. If your `Raw Data` came from somewhere else, its
+ZT0 is already baked in — re-import through Step 0 to fix the alignment.
 
 **It produces**, inside the destination folder: a `Raw Data/` folder (one
 legacy-format `.txt` file per channel), a `channelList.txt`, and a
