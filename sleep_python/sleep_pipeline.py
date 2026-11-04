@@ -260,10 +260,52 @@ def build_dataset(path):
 
 
 def by_group(genos, values, group_order):
+    """Rows grouped by genotype, keyed by group_order.
+
+    Genotypes absent from group_order are skipped rather than raising, which is
+    what lets a subset of groups be plotted: the flies of unselected genotypes
+    are still present in the arrays, they just don't belong to any output key."""
     out = {g: [] for g in group_order}
+    keep = set(group_order)
     for geno, row in zip(genos, values):
-        out[geno].append(row)
+        if geno in keep:
+            out[geno].append(row)
     return {g: np.array(v) for g, v in out.items()}
+
+
+def filter_dataset_groups(dataset, keep):
+    """Restrict a dataset to `keep`, preserving the original group order.
+
+    Only the group bookkeeping is rebuilt -- the per-fly arrays are left alone,
+    because by_group ignores genotypes that are no longer listed. The sex
+    detection has to be redone on the subset: whether the sex convention holds,
+    and which base names exist, are properties of the selection, not of the file."""
+    keep = set(keep)
+    group_order = [g for g in dataset['group_order'] if g in keep]
+    if not group_order:
+        raise ValueError("No groups selected -- nothing to plot.")
+    _, has_sex, sex_of, base_order, geno_by_base_sex = detect_groups_and_sex(group_order)
+    out = dict(dataset)
+    out.update(group_order=group_order, has_sex=has_sex, sex_of=sex_of,
+               base_order=base_order, geno_by_base_sex=geno_by_base_sex)
+    return out
+
+
+def prism_workbook_name(stem):
+    """<experiment>_<ZT range>_Prism_ready_data.xlsx, from the export's stem.
+
+    Step 2 names its output "<experiment>__<range>[_tag]_multiColumn[ByFly]",
+    optionally with "_edited" appended by Step 3. Keeping the experiment and the
+    range means two workbooks from one experiment (say 24hrs and ZT0to12) stay
+    distinguishable after being copied out of their folders, which a bare
+    "Prism_ready_data.xlsx" does not. A non-standard stem falls back to using the
+    whole stem, so the name is always unique to its export."""
+    experiment, separator, rest = stem.partition("__")
+    if not separator:
+        return f"{stem}_Prism_ready_data.xlsx"
+    rest = re.sub(r"_multiColumn(ByFly)?", "", rest)
+    rest = re.sub(r"_edited$", "", rest).strip("_")
+    return f"{experiment}_{rest}_Prism_ready_data.xlsx" if rest else f"{experiment}_Prism_ready_data.xlsx"
 
 
 # ---------------------------------------------------------------------------
@@ -689,9 +731,15 @@ def write_prism_workbook(dataset, out_path):
 # main
 # ---------------------------------------------------------------------------
 
-def run(path):
+def run(path, groups=None):
     """Run the full plotting + Prism-export pipeline for one workbook.
-    Callable directly (e.g. from another pipeline script) or via main()."""
+    Callable directly (e.g. from another pipeline script) or via main().
+
+    `groups` restricts the output to a subset of genotypes: either a list of
+    names, or a callable taking the full group list and returning the subset
+    (which is how the pipeline asks the user). None keeps every group. The
+    selection applies to the plots *and* the Prism workbook, so the two always
+    agree about what was analysed."""
     if not os.path.isfile(path):
         raise FileNotFoundError(f"File not found: {path}")
 
@@ -702,6 +750,13 @@ def run(path):
 
     print(f"Loading {path} ...")
     dataset = build_dataset(path)
+    if groups is not None:
+        all_groups = list(dataset['group_order'])
+        chosen = groups(all_groups) if callable(groups) else groups
+        if list(chosen) != all_groups:
+            dataset = filter_dataset_groups(dataset, chosen)
+            print(f"Restricted to {len(dataset['group_order'])} of {len(all_groups)} groups: "
+                  + ", ".join(dataset['group_order']))
     group_order = dataset['group_order']
     print(f"Detected {len(group_order)} groups: {group_order}")
     print(f"Sex convention detected: {dataset['has_sex']}")
@@ -788,7 +843,7 @@ def run(path):
                 for fname in fnames:
                     print("  Saved", fname)
 
-    prism_path = os.path.join(out_dir, 'Prism_ready_data.xlsx')
+    prism_path = os.path.join(out_dir, prism_workbook_name(stem))
     write_prism_workbook(dataset, prism_path)
     print("  Saved", prism_path)
 

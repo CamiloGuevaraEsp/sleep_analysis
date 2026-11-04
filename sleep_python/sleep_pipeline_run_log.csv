@@ -18,3 +18,17 @@ run_id,timestamp,step,parameter,value,source
 2026-10-07_10-49-23,2026-10-07T10:49:23,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
 2026-10-07_10-49-23,2026-10-07T10:49:26,start,Steps to run (as typed),0 1 2 3 4,answered
 2026-10-07_10-49-23,2026-10-07T10:49:26,start,Steps to run (resolved),0 1 2 3 4,derived
+2026-10-07_11-44-22,2026-10-07T11:44:22,start,Pipeline version,1.5.1,derived
+2026-10-07_11-44-22,2026-10-07T11:44:22,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-11-02_21-01-16,2026-11-02T21:01:16,start,Pipeline version,1.5.1,derived
+2026-11-02_21-01-16,2026-11-02T21:01:16,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-11-02_21-01-16,2026-11-02T21:01:22,start,Steps to run (as typed),4,answered
+2026-11-02_21-01-16,2026-11-02T21:01:22,start,Steps to run (resolved),4,derived
+2026-11-02_21-01-16,2026-11-02T21:01:41,4 - Prism plots & tables,Multi-column file to visualize,/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261102/20261102__24hrs_multiColumnByFly.xlsx,answered
+2026-11-02_21-01-16,2026-11-02T21:01:49,4 - Prism plots & tables,Prism export folder (20261102__24hrs_multiColumnByFly.xlsx),/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261102/20261102__24hrs_multiColumnByFly_prism_export,output
+2026-11-02_21-06-17,2026-11-02T21:06:17,start,Pipeline version,1.5.1,derived
+2026-11-02_21-06-17,2026-11-02T21:06:17,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-11-02_21-06-17,2026-11-02T21:06:19,start,Steps to run (as typed),4,answered
+2026-11-02_21-06-17,2026-11-02T21:06:19,start,Steps to run (resolved),4,derived
+2026-11-02_21-06-17,2026-11-02T21:06:31,4 - Prism plots & tables,Multi-column file to visualize,/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261102/20261102__24hrs_multiColumnByFly.xlsx,answered
+2026-11-02_21-06-17,2026-11-02T21:06:38,4 - Prism plots & tables,Prism export folder (20261102__24hrs_multiColumnByFly.xlsx),/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261102/20261102__24hrs_multiColumnByFly_prism_export,output

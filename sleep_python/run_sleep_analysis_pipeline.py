@@ -75,7 +75,7 @@ except Exception:
 # =============================================================================
 # Bump __version__ whenever a new version is tagged in the repository; the check
 # below compares this number against the newest tag/release on GitHub.
-__version__ = "1.5.1"
+__version__ = "1.6"
 REPO_URL = "https://github.com/CamiloGuevaraEsp/sleep_analysis"
 REPO_API = "https://api.github.com/repos/CamiloGuevaraEsp/sleep_analysis"
 UPDATE_CHECK_TIMEOUT_S = 2
@@ -1898,8 +1898,23 @@ def step4_generate_prism_export(state):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import sleep_pipeline
 
+    # Asked lazily, because the group list only exists once the workbook is read,
+    # and cached by that list so several ZT ranges of one experiment ask once.
+    chosen_by_group_list = {}
+
+    def choose_groups(all_groups):
+        key = tuple(all_groups)
+        if key not in chosen_by_group_list:
+            chosen_by_group_list[key] = ask_multi_choice(
+                "Which groups do you want plotted? Enter 'all', or pick by number "
+                "(e.g. '1 3 5' or '1-4') or by name. This applies to the plots and to "
+                "the Prism workbook, so the two always show the same groups.",
+                list(all_groups), default="all", label="Groups to plot",
+            )
+        return chosen_by_group_list[key]
+
     for input_path in input_paths:
-        out_dir = sleep_pipeline.run(str(input_path))
+        out_dir = sleep_pipeline.run(str(input_path), groups=choose_groups)
         print(f"Saved Prism-ready plots and data to {out_dir}")
         record(f"Prism export folder ({input_path.name})", out_dir, "output")
     return state

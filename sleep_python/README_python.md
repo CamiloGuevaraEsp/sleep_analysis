@@ -413,6 +413,12 @@ copy/paste-ready workbook for GraphPad Prism.
 **It asks you for:**
 - Whether to use the file Step 3 just cleaned (usually yes), or a different
   multi-column file.
+- **Which groups to plot** — press Enter (or type `all`) for every group, or pick
+  a subset by number (`1 3 5`, `1-4`) or by name. Useful when an experiment has
+  many genotypes: a 53-group bar chart is unreadable, four is fine. The choice
+  applies to the plots **and** to the Prism workbook, so the two always show the
+  same groups. If you export several ZT ranges at once you're only asked once,
+  since they share a group list.
 
 **It produces** a `<name>_prism_export/` folder next to that file, containing:
 - `combined/` — one bar+dot plot per metric (all genotypes together), plus a
@@ -420,8 +426,13 @@ copy/paste-ready workbook for GraphPad Prism.
   more than one day).
 - `by_sex/` — the same, split by sex, *only if* every genotype name in your
   channelList ends in `_male` or `_female`.
-- `Prism_ready_data.xlsx` — every metric as a Prism "Column" table, ready to
-  paste straight into Prism.
+- `<experiment>_<range>_Prism_ready_data.xlsx` — every metric as a Prism
+  "Column" table, ready to paste straight into Prism. The name carries the
+  experiment and ZT range (e.g. `20260928_24hrs_Prism_ready_data.xlsx`,
+  `20260928_ZT0to12_Prism_ready_data.xlsx`) so workbooks stay distinguishable
+  once copied out of their folders — previously every one of them was just
+  `Prism_ready_data.xlsx`. A non-default sleep definition is kept in the name
+  too.
 
 ---
 
