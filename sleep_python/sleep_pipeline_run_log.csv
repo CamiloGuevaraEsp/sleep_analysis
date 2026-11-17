@@ -32,3 +32,60 @@ run_id,timestamp,step,parameter,value,source
 2026-11-02_21-06-17,2026-11-02T21:06:19,start,Steps to run (resolved),4,derived
 2026-11-02_21-06-17,2026-11-02T21:06:31,4 - Prism plots & tables,Multi-column file to visualize,/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261102/20261102__24hrs_multiColumnByFly.xlsx,answered
 2026-11-02_21-06-17,2026-11-02T21:06:38,4 - Prism plots & tables,Prism export folder (20261102__24hrs_multiColumnByFly.xlsx),/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261102/20261102__24hrs_multiColumnByFly_prism_export,output
+2026-11-03_22-42-20,2026-11-03T22:42:20,start,Pipeline version,1.6,derived
+2026-11-03_22-42-20,2026-11-03T22:42:20,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-11-03_22-42-20,2026-11-03T22:42:24,start,Steps to run (as typed),4,answered
+2026-11-03_22-42-20,2026-11-03T22:42:24,start,Steps to run (resolved),4,derived
+2026-11-03_22-42-20,2026-11-03T22:42:54,4 - Prism plots & tables,Multi-column file to visualize,/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261103_hs/20261103__ZT0to6_multiColumn_edited.xlsx,answered
+2026-11-03_22-42-20,2026-11-03T22:43:13,4 - Prism plots & tables,Groups to plot (as typed),1 2 4,answered
+2026-11-03_22-42-20,2026-11-03T22:43:13,4 - Prism plots & tables,Groups to plot (resolved),ppk_trpa1_rnai; trpa1_rnai_control; ppk_control,derived
+2026-11-03_22-42-20,2026-11-03T22:43:20,4 - Prism plots & tables,Prism export folder (20261103__ZT0to6_multiColumn_edited.xlsx),/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261103_hs/20261103__ZT0to6_multiColumn_edited_prism_export,output
+2026-11-04_09-13-53,2026-11-04T09:13:53,start,Pipeline version,1.6,derived
+2026-11-04_09-13-53,2026-11-04T09:13:53,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-11-04_09-13-53,2026-11-04T09:13:56,start,Steps to run (as typed),4,answered
+2026-11-04_09-13-53,2026-11-04T09:13:56,start,Steps to run (resolved),4,derived
+2026-11-04_09-13-53,2026-11-04T09:14:31,4 - Prism plots & tables,Multi-column file to visualize,/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261103_hs/20261103__ZT0to6_multiColumn_edited.xlsx,answered
+2026-11-04_09-13-53,2026-11-04T09:15:45,4 - Prism plots & tables,Groups to plot (as typed),4 6 9,answered
+2026-11-04_09-13-53,2026-11-04T09:15:45,4 - Prism plots & tables,Groups to plot (resolved),ppk_control; ppk_ppk_rnai; ppk_rnai_control,derived
+2026-11-04_09-13-53,2026-11-04T09:15:54,4 - Prism plots & tables,Prism export folder (20261103__ZT0to6_multiColumn_edited.xlsx),/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261103_hs/20261103__ZT0to6_multiColumn_edited_prism_export,output
+2026-11-04_09-17-23,2026-11-04T09:17:23,start,Pipeline version,1.6,derived
+2026-11-04_09-17-23,2026-11-04T09:17:23,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-11-04_09-17-23,2026-11-04T09:17:25,start,Steps to run (as typed),4,answered
+2026-11-04_09-17-23,2026-11-04T09:17:25,start,Steps to run (resolved),4,derived
+2026-11-04_09-17-23,2026-11-04T09:17:41,4 - Prism plots & tables,Multi-column file to visualize,/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261103_hs/20261103__ZT0to6_multiColumn_edited.xlsx,answered
+2026-11-04_09-17-23,2026-11-04T09:18:17,4 - Prism plots & tables,Groups to plot (as typed),3 2 5,answered
+2026-11-04_09-17-23,2026-11-04T09:18:17,4 - Prism plots & tables,Groups to plot (resolved),trpa1_rnai_control; ppk_split_trpa1_rnai; ppk_split_control,derived
+2026-11-04_09-17-23,2026-11-04T09:18:25,4 - Prism plots & tables,Prism export folder (20261103__ZT0to6_multiColumn_edited.xlsx),/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261103_hs/20261103__ZT0to6_multiColumn_edited_prism_export,output
+2026-11-04_09-19-35,2026-11-04T09:19:35,start,Pipeline version,1.6,derived
+2026-11-04_09-19-35,2026-11-04T09:19:35,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-11-04_09-19-35,2026-11-04T09:19:48,start,Steps to run (as typed),4,answered
+2026-11-04_09-19-35,2026-11-04T09:19:48,start,Steps to run (resolved),4,derived
+2026-11-04_09-19-35,2026-11-04T09:20:07,4 - Prism plots & tables,Multi-column file to visualize,/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261103_hs/20261103__ZT0to6_multiColumn_edited.xlsx,answered
+2026-11-04_09-19-35,2026-11-04T09:20:20,4 - Prism plots & tables,Groups to plot (as typed),5 9 10,answered
+2026-11-04_09-19-35,2026-11-04T09:20:20,4 - Prism plots & tables,Groups to plot (resolved),ppk_split_control; ppk_rnai_control; ppk_split_ppk_rnai,derived
+2026-11-04_09-19-35,2026-11-04T09:20:30,4 - Prism plots & tables,Prism export folder (20261103__ZT0to6_multiColumn_edited.xlsx),/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261103_hs/20261103__ZT0to6_multiColumn_edited_prism_export,output
+2026-11-09_15-43-46,2026-11-09T15:43:46,start,Pipeline version,1.6,derived
+2026-11-09_15-43-46,2026-11-09T15:43:46,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-11-09_15-43-46,2026-11-09T15:43:52,start,Steps to run (as typed),0 1 2 3 4,answered
+2026-11-09_15-43-46,2026-11-09T15:43:52,start,Steps to run (resolved),0 1 2 3 4,derived
+2026-11-10_10-00-57,2026-11-10T10:00:57,start,Pipeline version,1.6,derived
+2026-11-10_10-00-57,2026-11-10T10:00:57,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-11-10_10-00-57,2026-11-10T10:01:01,start,Steps to run (as typed),4,answered
+2026-11-10_10-00-57,2026-11-10T10:01:01,start,Steps to run (resolved),4,derived
+2026-11-10_10-00-57,2026-11-10T10:01:29,4 - Prism plots & tables,Multi-column file to visualize,/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261103/20261103_baseline/20261103__24hrs_multiColumnByFly.xlsx,answered
+2026-11-10_10-01-37,2026-11-10T10:01:37,start,Pipeline version,1.6,derived
+2026-11-10_10-01-37,2026-11-10T10:01:37,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-11-10_10-01-37,2026-11-10T10:01:38,start,Steps to run (as typed),4,answered
+2026-11-10_10-01-37,2026-11-10T10:01:38,start,Steps to run (resolved),4,derived
+2026-11-10_10-01-37,2026-11-10T10:01:55,4 - Prism plots & tables,Multi-column file to visualize,/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261109/20261109_baseline/20261109__24hrs_multiColumnByFly_edited.xlsx,answered
+2026-11-10_10-01-37,2026-11-10T10:02:13,4 - Prism plots & tables,Groups to plot (as typed),4 6 7,answered
+2026-11-10_10-01-37,2026-11-10T10:02:13,4 - Prism plots & tables,Groups to plot (resolved),ppk_control; ppk_ppk_rnai; ppk_rnai_control,derived
+2026-11-10_10-01-37,2026-11-10T10:02:21,4 - Prism plots & tables,Prism export folder (20261109__24hrs_multiColumnByFly_edited.xlsx),/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261109/20261109_baseline/20261109__24hrs_multiColumnByFly_edited_prism_export,output
+2026-11-10_11-23-42,2026-11-10T11:23:42,start,Pipeline version,1.6,derived
+2026-11-10_11-23-42,2026-11-10T11:23:42,start,Pipeline script,/Users/camilog/Documents/GitHub/sleep_analysis/sleep_python/run_sleep_analysis_pipeline.py,derived
+2026-11-10_11-23-42,2026-11-10T11:23:44,start,Steps to run (as typed),4,answered
+2026-11-10_11-23-42,2026-11-10T11:23:44,start,Steps to run (resolved),4,derived
+2026-11-10_11-23-42,2026-11-10T11:24:02,4 - Prism plots & tables,Multi-column file to visualize,/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261109/20261109_HS/20261109__ZT0to6_multiColumn_edited.xlsx,answered
+2026-11-10_11-23-42,2026-11-10T11:24:16,4 - Prism plots & tables,Groups to plot (as typed),5 8 9,answered
+2026-11-10_11-23-42,2026-11-10T11:24:16,4 - Prism plots & tables,Groups to plot (resolved),ppk_split_control; kir_control; ppk_split_kir,derived
+2026-11-10_11-23-42,2026-11-10T11:24:24,4 - Prism plots & tables,Prism export folder (20261109__ZT0to6_multiColumn_edited.xlsx),/Volumes/VNC/Sleep Runs/VNC_project/AN_PPK/20261109/20261109_HS/20261109__ZT0to6_multiColumn_edited_prism_export,output
